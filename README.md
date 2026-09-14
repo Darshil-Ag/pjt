@@ -1,190 +1,247 @@
 # AIRB — Evidence-Calibrated Multi-Agent Decision Fusion Framework
 
-**Research Capstone · Sprint 1 Build**
+> A research-grade startup-feasibility evaluator where five domain-specialist LLM agents debate historical precedent, and a deterministic Python layer — not an LLM judge — fuses their opinions into an auditable **PROCEED** / **HIGH-RISK** / **REVIEW** verdict.
 
-> A startup-feasibility evaluator where five domain-specialist LLM agents debate historical precedent, and a deterministic Python layer — not an LLM judge — fuses their opinions into an auditable PROCEED / HIGH-RISK / REVIEW verdict.
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Frontend-Next.js%2016-000000?style=flat-square&logo=nextdotjs)](https://nextjs.org/)
+[![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-FF6F00?style=flat-square)](https://github.com/langchain-ai/langgraph)
+[![Groq](https://img.shields.io/badge/LLM-Groq%20Llama%203.3--70B-F50057?style=flat-square)](https://groq.com/)
+[![Google Gemini](https://img.shields.io/badge/LLM-Gemini%202.5%20Flash-4285F4?style=flat-square&logo=google)](https://aistudio.google.com/)
+[![License](https://img.shields.io/badge/License-MIT-blue.style=flat-square)](LICENSE)
 
 ---
 
-## Repo Structure
+## 📐 Architecture Overview
 
+```mermaid
+graph TD
+    subgraph Client ["Frontend (Next.js 16 - Vercel)"]
+        UI[User Interface / Pitch Form]
+        Dash[Auditable Decision Dashboard]
+    end
+
+    subgraph API ["Backend API (FastAPI - Render)"]
+        Routes[API Routes: /evaluate, /decision, /hitl-respond]
+    end
+
+    subgraph Pipeline ["LangGraph Execution Pipeline"]
+        Router["1. Context Router (Gemini 2.5 Flash)"]
+        RAG["2. ChromaDB RAG Retrieval (Top-k Historical Precedents)"]
+        
+        subgraph Agents ["Parallel Multi-Agent Swarm (Groq Llama 3.3-70B)"]
+            A1[Market Feasibility Agent]
+            A2[Financial Sustainability Agent]
+            A3[Technical Feasibility Agent]
+            A4[Regulatory Risk Agent]
+            A5[Execution Capacity Agent]
+        end
+
+        CI{"3. Conflict Index Node (CI Calculation)"}
+        HITL["4. Human-In-The-Loop (HITL Clarification Pause)"]
+        Fusion["5. Deterministic Python Fusion Engine"]
+        RedTeam["6. Red Team Adversarial Agent"]
+        Sweep["7. Sensitivity Sweep Node"]
+        Logger["8. Audit Logger & SQLite Checkpointer"]
+    end
+
+    UI -->|POST /evaluate| Routes
+    Routes --> Router
+    Router --> RAG
+    RAG --> A1 & A2 & A3 & A4 & A5
+    A1 & A2 & A3 & A4 & A5 --> CI
+    
+    CI -->|CI > θ_conflict (150.0)| HITL
+    HITL -->|User Answer Submitted| Fusion
+    CI -->|CI ≤ θ_conflict| Fusion
+    
+    Fusion --> RedTeam
+    RedTeam --> Sweep
+    Sweep --> Logger
+    Logger -->|Return Trace| Routes
+    Routes --> Dash
 ```
-airb/
-├── backend/              # FastAPI + LangGraph pipeline
-│   ├── config.yaml       # ← ALL thresholds and dataset params live here (NF-04)
-│   ├── .env.example      # ← Copy to .env, fill in API keys (NF-03)
-│   ├── main.py           # FastAPI entry point
-│   ├── schemas/          # Frozen Pydantic models + TypedDict state (SRS §6.1, §6.2)
-│   ├── graph/            # LangGraph state machine (all 9 nodes wired)
-│   ├── rag/              # ChromaDB index build + retrieval + dataset ingestion
-│   ├── dataset/          # LLM-assisted labeling pipeline + Cohen's kappa check
-│   ├── api/              # FastAPI routes
-│   ├── tests/            # Pytest unit tests
-│   └── data/             # Dataset files (not committed — in .gitignore)
-└── frontend/             # Next.js dashboard
-    ├── app/              # App Router pages
-    │   ├── page.tsx      # Home (pitch submission)
-    │   └── decision/[id] # Decision report with radar, agents, transcript
-    ├── components/       # PitchForm, Dashboard, HITLModal, Navbar
-    └── lib/api.ts        # Typed API client
+
+---
+
+## 🔄 End-to-End Execution Workflow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User / Investor
+    participant UI as Next.js Dashboard
+    participant API as FastAPI Backend
+    participant Graph as LangGraph Engine
+    participant LLM as Groq / Gemini LLMs
+    participant VectorDB as ChromaDB RAG
+
+    User->>UI: Submits Startup Pitch
+    UI->>API: POST /api/v1/evaluate
+    API->>Graph: Initialize ReviewBoardState
+    Graph->>LLM: 1. Context Router extracts Digital Twin parameters
+    Graph->>VectorDB: 2. Query top-k historical precedents (Grounding Set)
+    VectorDB-->>Graph: Return historical case evidence
+    Graph->>LLM: 3. Parallel dispatch to 5 Domain Agents (Groq 70B)
+    LLM-->>Graph: Return Agent Scores (Sᵢ), Confidences (Cᵢ), & Citations
+    Graph->>Graph: 4. Compute Conflict Index (CI = Var(S₁..S₅))
+
+    alt High Divergence (CI > θ_conflict)
+        Graph-->>API: Status: hitl_pending
+        API-->>UI: Display HITL Clarification Modal
+        User->>UI: Submits Clarifying Input
+        UI->>API: POST /api/v1/hitl-respond
+        API->>Graph: Resume Graph Execution
+    end
+
+    Graph->>Graph: 5. Execute Deterministic Python Fusion Math (Final Score & C_final)
+    Graph->>LLM: 6. Execute Red Team Adversarial Verification
+    Graph->>Graph: 7. Run Sensitivity Sweep Analysis
+    Graph->>API: Store DecisionTrace snapshot
+    API-->>UI: Render Full Auditable Radar & Citation Dashboard
 ```
 
 ---
 
-## Sprint 1 Status
+## ⚡ Key Architecture Principles
 
-| Deliverable | Status |
-|---|---|
-| Digital twin schema (Pydantic) | ✅ Done |
-| ReviewBoardState TypedDict (SRS §6.2) | ✅ Done |
-| LangGraph topology (all 9 nodes wired) | ✅ Done |
-| Conflict Index + Fusion math (deterministic Python) | ✅ Done |
-| FastAPI skeleton (4 endpoints) | ✅ Done |
-| Dataset ingestion + split enforcement (F-03) | ✅ Done |
-| F-03 test-leakage hard gate | ✅ Done |
-| ChromaDB RAG index builder | ✅ Done |
-| LLM-assisted labeling pipeline | ✅ Done |
-| Inter-rater kappa check (SRS §6.3) | ✅ Done |
-| Evaluation logger (UUID + version_info) | ✅ Done |
-| config.yaml (single source of truth) | ✅ Done |
-| Next.js frontend skeleton | ✅ Done |
-| Unit tests (TC-05, TC-06, TC-08, TC-09, TC-11, TC-15) | ✅ Done |
-| Seed dataset (20 cases) | ✅ Done |
-| Context Router (F-01, Gemini) | 🔲 Sprint 2 |
-| Retrieval node (F-04) | 🔲 Sprint 2 |
-| 5 domain agents via Groq (F-05) | 🔲 Sprint 2 |
-| Confidence scoring (F-06) | 🔲 Sprint 2 |
-| Weight calibration (F-07) | 🔲 Sprint 2 |
-| HITL pause/resume (F-09) | 🔲 Sprint 3 |
-| Red Team (F-13) | 🔲 Sprint 3 |
-| Sensitivity sweep (F-14) | 🔲 Sprint 3 |
-| SQLite persistence + replay (F-17) | 🔲 Sprint 3 |
-| Dashboard full integration | 🔲 Sprint 3 |
-| Ablation harness + bootstrap CIs (F-12) | 🔲 Sprint 4 |
+> **Strict Separation of Concerns**: All subjective evaluation and citation matching stays inside the LLM agent layer. All weighting, score fusion, confidence calculations ($C_{final}$), and conflict detection ($CI$) are computed by deterministic Python math — **zero LLM calls inside the decision engine**.
+
+1. **Evidence-Grounded**: Every score $S_i$ emitted by an agent must cite specific historical case IDs from ChromaDB.
+2. **Conflict-Aware HITL**: If domain agents diverge significantly ($CI = \text{Var}(S_1 \dots S_5) > \theta_{conflict}$), execution pauses safely for human intervention.
+3. **Reproducibility & Auditability**: Every decision snapshot records exact model versions, dataset versions, prompt versions, and initial weights.
+4. **Data Isolation Hard Gate**: Test-set cases are strictly excluded from vector indexing ($F-03$) to prevent evaluation data leakage.
 
 ---
 
-## Quick Start
+## 📁 Repository Structure
 
-### 1. Backend
+```text
+pjt/
+├── render.yaml               # Render Blueprint deployment specification
+├── README.md                 # System architecture, setup & deployment documentation
+├── backend/                  # Python FastAPI + LangGraph Backend
+│   ├── main.py               # FastAPI entry point & CORS configuration
+│   ├── config.py             # Typed configuration loader
+│   ├── config.yaml           # Centralized thresholds & system hyper-parameters
+│   ├── requirements.txt      # Python dependencies
+│   ├── api/                  # REST API endpoints (/evaluate, /decision, /hitl-respond, /replay)
+│   ├── dataset/              # LLM-assisted labeling pipeline & Cohen's kappa validator
+│   ├── graph/                # LangGraph state machine topology & node implementations
+│   │   └── nodes/            # Context Router, Retrieval, Parallel Dispatch, Fusion, HITL, etc.
+│   ├── rag/                  # ChromaDB vector index ingestion, embedding & split manager
+│   ├── schemas/              # Pydantic models & TypedDict ReviewBoardState definitions
+│   └── tests/                # Pytest automated unit test suite
+└── frontend/                 # Next.js 16 Web Dashboard
+    ├── app/                  # Next.js App Router (Pitch Form & Decision Dashboard)
+    ├── components/           # UI Components (PitchForm, Dashboard, HITLModal, Navbar)
+    ├── lib/api.ts            # Type-safe API client wrapper
+    ├── package.json          # Node dependencies & scripts
+    └── tsconfig.json         # TypeScript configuration
+```
+
+---
+
+## 🚀 Deployment Guide (100% Free Tier)
+
+### 1. Backend on Render (Web Service)
+
+#### Option A: Render Blueprint (Recommended)
+1. Go to [Render Dashboard](https://dashboard.render.com/) → **New +** → **Blueprint**.
+2. Connect your GitHub repository `Darshil-Ag/pjt`.
+3. Render automatically parses `render.yaml` with pre-set build/start commands.
+4. Add your API keys under Environment Variables:
+   * `GROQ_API_KEY`: Your Groq API key
+   * `GOOGLE_API_KEY`: Your Google AI Studio key
+5. Click **Apply**.
+
+#### Option B: Manual Web Service
+* **Root Directory**: `backend`
+* **Environment**: `Python 3`
+* **Build Command**: `pip install -r requirements.txt`
+* **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+* **Environment Variables**:
+  * `PYTHON_VERSION`: `3.11.0`
+  * `GROQ_API_KEY`: `your_groq_key`
+  * `GOOGLE_API_KEY`: `your_google_key`
+
+> 💡 **Free Tier Cold-Start Optimization**: Set up a free monitor at [UptimeRobot](https://uptimerobot.com/) to ping `https://your-backend.onrender.com/health` every 10 minutes to prevent Render from going to sleep.
+
+---
+
+### 2. Frontend on Vercel
+
+1. Go to [Vercel Dashboard](https://vercel.com/new) → Import repository `Darshil-Ag/pjt`.
+2. Configure settings:
+   * **Framework Preset**: `Next.js`
+   * **Root Directory**: Select `frontend`
+3. Add Environment Variable:
+   * `NEXT_PUBLIC_API_URL`: `https://your-backend-name.onrender.com/api/v1`
+4. Click **Deploy**.
+
+---
+
+## 💻 Local Development Setup
+
+### Backend Setup
 
 ```powershell
+# Navigate to backend directory
+cd backend
+
 # Create and activate virtual environment
-cd airb/backend
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
+# Create .env file
 copy .env.example .env
-# Edit .env — fill in GROQ_API_KEY and GOOGLE_API_KEY
+# Edit .env to add your GROQ_API_KEY and GOOGLE_API_KEY
 
-# Run dev server
-uvicorn main:app --reload --port 8000
+# Run automated tests
+.venv\Scripts\python.exe -m pytest
+
+# Start development server
+.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
+Backend API interactive documentation is available at `http://localhost:8000/docs`.
 
-API docs available at: http://localhost:8000/docs
-
-### 2. Dataset Pipeline (Sprint 1)
+### Frontend Setup
 
 ```powershell
-# Run LLM-assisted labeling on seed dataset
-python -m dataset.label_pipeline --input data/raw_cases.csv --output data/labeled_draft.jsonl
+# Navigate to frontend directory
+cd frontend
 
-# After human verification of labeled_draft.jsonl:
-# Run ingestion + split assignment
-python -m rag.ingest --input data/labeled_draft.jsonl --output data/historical_cases.jsonl
+# Install Node dependencies
+npm install
 
-# Build ChromaDB index
-python -m rag.index --rebuild --input data/historical_cases.jsonl
-
-# Run F-03 split integrity check
-python -m rag.ingest --check-split
+# Build & run production or dev server
+npm run dev
 ```
+Open `http://localhost:3000` in your browser.
 
-### 3. Inter-Rater Kappa Check
+---
+
+## 📊 Evaluation & Verification
+
+The backend includes a comprehensive pytest suite covering math fusion deterministic stability, conflict index triggering thresholds, evidence scoring bounds, and dataset disjointness.
 
 ```powershell
-# Run on synthetic test fixture to verify tool works
-python -m dataset.kappa_check --test
-
-# Run on two real rater files
-python -m dataset.kappa_check --rater1 data/rater1.csv --rater2 data/rater2.csv
-```
-
-### 4. Unit Tests
-
-```powershell
-cd airb/backend
+cd backend
 pytest tests/ -v
 ```
 
-### 5. Frontend
-
-```powershell
-cd airb/frontend
-npm run dev
+```text
+tests/test_sprint1.py::TestFusionNode::test_tc08_hand_calculated PASSED
+tests/test_sprint1.py::TestConflictIndex::test_high_variance_triggers_conflict PASSED
+tests/test_sprint1.py::TestConfidenceFormula::test_m_evidence_pure_function_all_match PASSED
+tests/test_sprint1.py::TestDatasetIntegrity::test_ingest_splits_are_disjoint PASSED
+============================= 16 passed in 1.12s ==============================
 ```
 
-Open: http://localhost:3000
-
 ---
 
-## Architecture Principle
+## 🛡️ License
 
-> **All subjective judgment stays inside the LLM agent layer. All weighting, scoring math, conflict detection, and routing logic is deterministic Python — no LLM calls inside the fusion, confidence (Cᵢ), weight (Wᵢ), or conflict-index (CI) computations.**
-
-This separation is the entire auditability argument the research contribution rests on.
-
----
-
-## Key Configuration (config.yaml)
-
-| Parameter | Default | Description |
-|---|---|---|
-| `thresholds.theta_conflict` | 150.0 | CI threshold for HITL trigger (F-08) |
-| `thresholds.tau_approve` | 60.0 | Min score for PROCEED verdict (F-10) |
-| `thresholds.tau_confidence` | 0.40 | Min C_final for non-REVIEW verdict (F-10) |
-| `rag.top_k` | 5 | Retrieved cases per query (F-04) |
-| `dataset.N` | 300 | Target dataset size (configurable) |
-| `sensitivity_sweep.num_points` | 5 | Sweep points for HITL variable (F-14) |
-
----
-
-## Dataset Requirements
-
-See BRD §6 for sizing guidance. **Recommended: 250–350 cases** split as:
-- **60% grounding** → RAG corpus
-- **15% calibration** → weight calibration (Sprint 2)
-- **25% test** → held-out ablation study (Sprint 4)
-
-**Hard rule (F-03):** Test-set cases must never enter the vector index. Enforced automatically.
-
----
-
-## API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/v1/evaluate` | Submit pitch, get evaluation_id |
-| `POST` | `/api/v1/hitl-respond` | Submit HITL answer, resume graph |
-| `GET` | `/api/v1/decision/{id}` | Full decision trace |
-| `GET` | `/api/v1/replay/{id}` | Exact replay, zero LLM calls (F-17) |
-| `GET` | `/health` | System health check |
-
----
-
-## Stack (all free-tier)
-
-| Layer | Technology |
-|---|---|
-| Orchestration | LangGraph (Python) |
-| Worker agents | Llama 3.3 70B via Groq free tier |
-| Router / embeddings | Gemini 2.5 Flash via Google AI Studio |
-| Vector store | ChromaDB (local, disk-backed) |
-| Backend | FastAPI + Uvicorn |
-| Persistence | SQLite (LangGraph checkpoints) |
-| Frontend | Next.js (App Router) |
-| Hosting | Vercel (frontend) + Render/Railway free tier (backend) |
+Distributed under the MIT License. See `LICENSE` for details.
