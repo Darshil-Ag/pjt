@@ -1,0 +1,75 @@
+# AIRB Configuration
+# Per SRS NF-04: ALL thresholds and dataset-size values live here — never inline in code.
+
+# ── Dataset ────────────────────────────────────────────────────────────────────
+dataset:
+  # Total number of historical cases (configurable, see BRD §6)
+  N: 300
+  # Fractions must sum to 1.0
+  split_ratios:
+    grounding: 0.60     # ~180 cases for RAG corpus
+    calibration: 0.15   # ~45 cases for weight calibration (F-07)
+    test: 0.25          # ~75 cases for held-out ablation (F-12)
+  # Path to raw labeled dataset (JSONL format)
+  raw_data_path: "data/historical_cases.jsonl"
+  # Path where the split is persisted (so IDs don't change between runs)
+  split_manifest_path: "data/split_manifest.json"
+
+# ── RAG / Retrieval ────────────────────────────────────────────────────────────
+rag:
+  top_k: 5                       # Default number of retrieved cases (F-04)
+  index_type: "chromadb"         # "chromadb" | "faiss" — swap without code changes (Arch §7)
+  chroma_persist_dir: "data/chroma_index"
+  embedding_model: "models/text-embedding-004"  # Gemini embedding model
+
+# ── Thresholds ─────────────────────────────────────────────────────────────────
+thresholds:
+  theta_conflict: 150.0          # CI = Var(S1..S5); above this → HITL (F-08)
+  tau_approve: 60.0              # Final_Score >= this → PROCEED (F-10)
+  tau_confidence: 0.40           # C_final < this → REVIEW/abstain (F-10)
+
+# ── Confidence Formula Weights (F-06) ──────────────────────────────────────────
+confidence:
+  w_sim: 0.5                     # Weight on M_sim (retrieval cosine similarity)
+  w_evidence: 0.4                # Weight on M_evidence (cited-case domain match fraction)
+  w_reliability: 0.1             # Weight on M_reliability (fixed = 1.0 for curated data)
+
+# ── Sensitivity Sweep (F-14) ───────────────────────────────────────────────────
+sensitivity_sweep:
+  num_points: 5                  # Number of sweep values for the HITL-triggering variable
+
+# ── LLM Models ────────────────────────────────────────────────────────────────
+llm:
+  worker_model: "llama-3.3-70b-versatile"   # Groq — 5 parallel domain agents
+  router_model: "gemini-2.5-flash"          # Gemini — Context Router + embeddings
+  red_team_model: "llama-3.3-70b-versatile" # Groq — Red Team (same tier as workers)
+
+# ── Weight Calibration (F-07) ──────────────────────────────────────────────────
+calibration:
+  # Grid search parameters for (b_i, T) — fit on calibration set
+  temperature_range: [0.5, 1.0, 1.5, 2.0]
+  bias_range: [-0.2, -0.1, 0.0, 0.1, 0.2]
+  random_seed: 42
+  output_path: "data/calibrated_weights.json"
+
+# ── Labeling Pipeline (BRD §6) ─────────────────────────────────────────────────
+labeling:
+  raw_input_path: "data/raw_cases.csv"
+  output_path: "data/labeled_cases.jsonl"
+  kappa_subset_size: 30          # Minimum cases for inter-rater kappa check (SRS §6.3)
+  kappa_target: 0.6              # Minimum acceptable Cohen's kappa
+
+# ── Versioning (F-17 Reproducibility) ────────────────────────────────────────
+versioning:
+  prompt_template_version: "v1.0"
+  dataset_version: "v1.0"
+  rag_index_version: "v1.0"
+  weight_calibration_version: "uncalibrated"  # updated after Sprint 2 calibration run
+
+# ── API ───────────────────────────────────────────────────────────────────────
+api:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins:
+    - "http://localhost:3000"
+    - "https://*.vercel.app"
