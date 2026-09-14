@@ -85,7 +85,7 @@ def initial_state(startup_pitch: str, evaluation_id: str, version_info: dict) ->
         digital_twin={},
         retrieved_cases=[],
         round_count=0,
-        max_rounds=2,  # Default: allow at most 1 HITL re-evaluation round
+        max_rounds=1,  # Default: allow at most 1 HITL re-evaluation round
         agent_scores={},
         agent_confidences={},
         agent_weights={},

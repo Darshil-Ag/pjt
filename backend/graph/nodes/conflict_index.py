@@ -54,6 +54,9 @@ def route_after_conflict(state: ReviewBoardState) -> str:
     Also respects max_rounds to prevent infinite HITL loops.
     Per SRS F-08: routing threshold is strictly >, not >=.
     """
-    if state["conflict_detected"] and state["round_count"] < state["max_rounds"]:
+    max_rounds = state.get("max_rounds", 1)
+    round_count = state.get("round_count", 0)
+    conflict_detected = state.get("conflict_detected", False)
+    if conflict_detected and round_count < max_rounds:
         return "hitl"
     return "fusion"

@@ -798,3 +798,15 @@ class TestHITLResumeNode:
         result = hitl_resume_node(state, "Some answer.")
         assert result["hitl_pending"] is False
         assert result["round_count"] == 1
+
+    def test_resume_bypasses_second_hitl(self):
+        """After 1 HITL round (round_count=1), route_after_conflict MUST return 'fusion' even if conflict is detected."""
+        from graph.nodes.conflict_index import route_after_conflict
+        state = {
+            "conflict_detected": True,
+            "round_count": 1,
+            "max_rounds": 1,
+        }
+        route = route_after_conflict(state)
+        assert route == "fusion", f"Expected 'fusion' after 1 HITL round, got {route!r}"
+
