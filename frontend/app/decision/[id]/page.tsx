@@ -7,8 +7,10 @@ import HITLModal from "@/components/HITLModal";
 import ProgressTracker from "@/components/ProgressTracker";
 import {
   DecisionHero,
-  AgentBreakdownTable,
-  AgentRadarChart,
+  DomainAnalysisBars,
+  DigitalTwinView,
+  CompactAgentCards,
+  EvidenceSection,
   BoardTranscript,
   VersionInfo,
   SensitivitySweep,
@@ -61,14 +63,11 @@ export default function DecisionPage() {
       } else if (p.status === "error") {
         stopPolling();
       }
-      // "hitl_pending" keeps polling so we can detect resume
     } catch (err) {
-      // 404 means the ID was never registered (bad URL); stop polling
       if (err instanceof Error && err.message.includes("404")) {
         stopPolling();
         setTraceError("Evaluation not found. The ID may be invalid or the server restarted.");
       }
-      // Other errors (network blip) — keep polling silently
     }
   }
 
@@ -80,7 +79,7 @@ export default function DecisionPage() {
   }
 
   useEffect(() => {
-    // Kick off first poll immediately, then every 2 seconds
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     pollStatus();
     pollRef.current = setInterval(pollStatus, POLL_INTERVAL_MS);
     return () => stopPolling();
@@ -95,7 +94,6 @@ export default function DecisionPage() {
   }
 
   function handleHITLResolved() {
-    // Resume polling after HITL answer submitted
     if (!pollRef.current) {
       pollRef.current = setInterval(pollStatus, POLL_INTERVAL_MS);
     }
@@ -117,9 +115,9 @@ export default function DecisionPage() {
           {/* Header row */}
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "var(--space-6)", gap: "var(--space-4)", flexWrap: "wrap" }}>
             <div>
-              <h1 style={{ fontSize: "1.6rem", marginBottom: "var(--space-1)" }}>Decision Report</h1>
+              <h1 style={{ fontSize: "1.5rem", marginBottom: "var(--space-1)", fontWeight: 700 }}>Startup Evaluation</h1>
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                <code style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                <code style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.8rem", color: "var(--text-muted)" }}>
                   {id}
                 </code>
                 <button id="copy-eval-id" className="btn-ghost btn" style={{ padding: "2px 6px" }} onClick={copyId}>
@@ -162,8 +160,8 @@ export default function DecisionPage() {
           {/* Trace loading state */}
           {loadingTrace && !trace && (
             <div style={{ textAlign: "center", padding: "var(--space-16)" }}>
-              <div className="spinner" style={{ width: 40, height: 40, margin: "0 auto var(--space-4)" }} />
-              <p style={{ color: "var(--text-muted)" }}>Loading decision trace…</p>
+              <div className="spinner" style={{ width: 36, height: 36, margin: "0 auto var(--space-4)" }} />
+              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>Loading evaluation report…</p>
             </div>
           )}
 
@@ -171,8 +169,8 @@ export default function DecisionPage() {
           {traceError && (
             <div style={{
               padding: "var(--space-6)", borderRadius: "var(--radius-md)",
-              background: "rgba(248,81,73,0.10)", border: "1px solid var(--danger)",
-              color: "var(--danger)", textAlign: "center"
+              background: "var(--danger-bg)", border: "1px solid var(--danger-border)",
+              color: "var(--danger-text)", textAlign: "center"
             }}>
               {traceError}
             </div>
@@ -183,13 +181,13 @@ export default function DecisionPage() {
             <>
               {/* Decision hero */}
               {trace.decision && (
-                <div className="card glow-border fade-in" style={{ marginBottom: "var(--space-6)" }}>
+                <div className="card" style={{ marginBottom: "var(--space-6)" }}>
                   <DecisionHero trace={trace} />
                 </div>
               )}
 
-              {/* Tabs */}
-              <div style={{ display: "flex", gap: "var(--space-1)", borderBottom: "1px solid var(--border)", marginBottom: "var(--space-6)" }}>
+              {/* Navigation Tabs */}
+              <div style={{ display: "flex", gap: "var(--space-2)", borderBottom: "1px solid var(--border)", marginBottom: "var(--space-6)", flexWrap: "wrap" }}>
                 {SECTION_TABS.map(tab => (
                   <button
                     key={tab}
@@ -197,10 +195,12 @@ export default function DecisionPage() {
                     className="btn btn-ghost"
                     onClick={() => setActiveTab(tab)}
                     style={{
-                      borderBottom: activeTab === tab ? "2px solid var(--accent-400)" : "2px solid transparent",
-                      borderRadius: 0, color: activeTab === tab ? "var(--accent-400)" : "var(--text-muted)",
+                      borderBottom: activeTab === tab ? "2px solid var(--text-primary)" : "2px solid transparent",
+                      borderRadius: 0,
+                      color: activeTab === tab ? "var(--text-primary)" : "var(--text-muted)",
                       fontWeight: activeTab === tab ? 600 : 400,
-                      paddingBottom: "var(--space-3)"
+                      padding: "var(--space-2) var(--space-4)",
+                      fontSize: "0.9rem"
                     }}
                   >
                     {tab}
@@ -209,42 +209,62 @@ export default function DecisionPage() {
               </div>
 
               {/* Tab Content */}
-              <div className="fade-in" key={activeTab}>
+              <div key={activeTab}>
 
                 {/* ── Overview ── */}
                 {activeTab === "Overview" && (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--space-6)" }}>
-                    <div className="card">
-                      <h3 style={{ marginBottom: "var(--space-6)" }}>Risk Radar</h3>
-                      <AgentRadarChart trace={trace} />
-                    </div>
-                    <div className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
-                      <h3>Key Metrics</h3>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
-                        {[
-                          { label: "Final Score", value: trace.final_score !== undefined ? `${trace.final_score.toFixed(1)}` : "—", sub: `± ${(trace.final_score_uncertainty ?? 0).toFixed(1)} uncertainty` },
-                          { label: "Confidence", value: trace.final_confidence !== undefined ? `${(trace.final_confidence * 100).toFixed(1)}%` : "—", sub: "C_final = Σ(Wᵢ·Cᵢ)" },
-                          { label: "Conflict Index", value: trace.conflict_index !== undefined ? trace.conflict_index.toFixed(2) : "—", sub: "CI = Var(S₁…S₅)" },
-                          { label: "HITL Triggered", value: trace.hitl_triggered ? "Yes" : "No", sub: trace.hitl_effectiveness !== undefined ? `Δ CI = ${trace.hitl_effectiveness.toFixed(2)}` : "" },
-                        ].map(m => (
-                          <div key={m.label} className="metric-card">
-                            <span className="metric-label">{m.label}</span>
-                            <span className="metric-value" style={{ fontSize: "1.5rem" }}>{m.value}</span>
-                            {m.sub && <span className="metric-sub">{m.sub}</span>}
-                          </div>
-                        ))}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
+                    {/* Key Metrics Grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--space-4)" }}>
+                      <div className="card" style={{ padding: "var(--space-4)" }}>
+                        <span className="kv-label">Final Score</span>
+                        <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)", marginTop: 4 }}>
+                          {trace.final_score !== undefined ? trace.final_score.toFixed(0) : "—"}
+                          <span style={{ fontSize: "0.9rem", color: "var(--text-muted)", fontWeight: 400 }}> / 100</span>
+                        </div>
                       </div>
-                      {trace.red_team_flag && (
-                        <>
-                          <div className="divider" />
-                          <div style={{ padding: "var(--space-4)", borderRadius: "var(--radius-md)", background: "rgba(248,81,73,0.08)", border: "1px solid var(--danger)" }}>
-                            <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--danger)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "var(--space-2)" }}>
-                              🛡️ Red Team — {trace.red_team_severity?.toUpperCase()} Severity
-                            </p>
-                            <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", margin: 0 }}>{trace.red_team_reasoning}</p>
-                          </div>
-                        </>
-                      )}
+
+                      <div className="card" style={{ padding: "var(--space-4)" }}>
+                        <span className="kv-label">Decision</span>
+                        <div style={{ marginTop: 6 }}>
+                          <span className={`badge badge-${trace.decision?.toLowerCase().replace("-", "")}`}>
+                            {trace.decision}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ padding: "var(--space-4)" }}>
+                        <span className="kv-label">Confidence</span>
+                        <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)", marginTop: 4 }}>
+                          {trace.final_confidence !== undefined ? `${Math.round(trace.final_confidence * 100)}%` : "—"}
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ padding: "var(--space-4)" }}>
+                        <span className="kv-label">Conflict Index</span>
+                        <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)", marginTop: 4 }}>
+                          {trace.conflict_index !== undefined ? trace.conflict_index.toFixed(2) : "—"}
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ padding: "var(--space-4)" }}>
+                        <span className="kv-label">Red Team</span>
+                        <div style={{ fontSize: "1rem", fontWeight: 600, color: trace.red_team_flag ? "var(--danger-text)" : "var(--success-text)", marginTop: 8 }}>
+                          {trace.red_team_flag ? `Flagged (${trace.red_team_severity?.toUpperCase()})` : "Passed"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Domain Analysis */}
+                    <div className="card">
+                      <h3 style={{ marginBottom: "var(--space-4)" }}>Domain Analysis</h3>
+                      <DomainAnalysisBars trace={trace} />
+                    </div>
+
+                    {/* Digital Twin */}
+                    <div className="card">
+                      <h3 style={{ marginBottom: "var(--space-4)" }}>Digital Twin</h3>
+                      <DigitalTwinView dt={trace.digital_twin} />
                     </div>
                   </div>
                 )}
@@ -253,14 +273,14 @@ export default function DecisionPage() {
                 {activeTab === "Agents" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
                     <div className="card">
-                      <h3 style={{ marginBottom: "var(--space-5)" }}>Agent Score Breakdown</h3>
-                      <AgentBreakdownTable trace={trace} />
+                      <h3 style={{ marginBottom: "var(--space-4)" }}>Domain Agents</h3>
+                      <CompactAgentCards trace={trace} />
                     </div>
                     {trace.sensitivity_sweep && trace.sensitivity_sweep.length > 0 && (
                       <div className="card">
                         <h3 style={{ marginBottom: "var(--space-2)" }}>Assumption Sensitivity Sweep</h3>
-                        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "var(--space-5)" }}>
-                          Re-ran fusion across a range of values for the HITL-triggering variable. Decision flips are highlighted.
+                        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "var(--space-4)" }}>
+                          Re-ran fusion across a range of values for the HITL-triggering variable.
                         </p>
                         <SensitivitySweep trace={trace} />
                       </div>
@@ -271,81 +291,14 @@ export default function DecisionPage() {
                 {/* ── Evidence ── */}
                 {activeTab === "Evidence" && (
                   <div className="card">
-                    <h3 style={{ marginBottom: "var(--space-2)" }}>Retrieved Historical Cases</h3>
-                    <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "var(--space-5)" }}>
-                      These are the most similar historical precedent cases retrieved from ChromaDB to anchor agent reasoning.
-                    </p>
-                    {trace.retrieved_cases && trace.retrieved_cases.length > 0 ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-                        {trace.retrieved_cases.map((c, i) => {
-                          const cid = String(c.case_id ?? `case_${i + 1}`);
-                          const outcome = String(c.outcome ?? "unknown").toLowerCase();
-                          const risk = String(c.primary_risk_category ?? "General");
-                          const summary = String(c.root_cause_summary ?? "");
-                          const rawText = String(c.raw_text ?? "");
-                          const similarity = typeof c.similarity_score === "number"
-                            ? (c.similarity_score * 100).toFixed(1) + "%"
-                            : null;
-
-                          return (
-                            <div key={cid} className="card" style={{ padding: "var(--space-4)", background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-2)", flexWrap: "wrap", gap: "var(--space-2)" }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                                  <code style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.85rem", color: "var(--accent-300)", fontWeight: 600 }}>
-                                    {cid}
-                                  </code>
-                                  {c.industry && (
-                                    <span style={{ fontSize: "0.75rem", padding: "2px 8px", borderRadius: "999px", background: "var(--bg-base)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-                                      {String(c.industry)}
-                                    </span>
-                                  )}
-                                  <span className={`domain-chip ${risk.toLowerCase()}`}>
-                                    {risk} Risk
-                                  </span>
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                                  {similarity && (
-                                    <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                                      Similarity: <strong style={{ color: "var(--text-secondary)" }}>{similarity}</strong>
-                                    </span>
-                                  )}
-                                  <span className={`badge ${outcome === "success" ? "badge-proceed" : outcome === "failed" ? "badge-highrisk" : "badge-review"}`}>
-                                    {outcome.toUpperCase()}
-                                  </span>
-                                </div>
-                              </div>
-                              {summary && (
-                                <p style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "var(--space-2)" }}>
-                                  {summary}
-                                </p>
-                              )}
-                              {rawText && (
-                                <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
-                                  {rawText}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : trace.retrieved_case_ids?.length ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-                        {trace.retrieved_case_ids.map(cid => (
-                          <div key={cid} className="evidence-card">
-                            <code style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.8rem", color: "var(--accent-300)" }}>{cid}</code>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p style={{ color: "var(--text-muted)", fontSize: "0.88rem" }}>No historical grounding cases retrieved for this evaluation.</p>
-                    )}
+                    <EvidenceSection trace={trace} />
                   </div>
                 )}
 
                 {/* ── Transcript ── */}
                 {activeTab === "Transcript" && (
                   <div className="card">
-                    <h3 style={{ marginBottom: "var(--space-5)" }}>Board Transcript</h3>
+                    <h3 style={{ marginBottom: "var(--space-4)" }}>Board Transcript</h3>
                     <BoardTranscript trace={trace} />
                   </div>
                 )}
@@ -353,13 +306,8 @@ export default function DecisionPage() {
                 {/* ── Reproducibility ── */}
                 {activeTab === "Reproducibility" && (
                   <div className="card">
-                    <h3 style={{ marginBottom: "var(--space-5)" }}>Version Snapshot (F-17)</h3>
+                    <h3 style={{ marginBottom: "var(--space-4)" }}>Technical Information</h3>
                     <VersionInfo trace={trace} />
-                    <div className="divider" style={{ margin: "var(--space-6) 0" }} />
-                    <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-                      Use <code style={{ fontFamily: "JetBrains Mono, monospace" }}>GET /replay/{id}</code> to
-                      reconstruct this exact decision without re-invoking any LLM (SRS F-17).
-                    </p>
                   </div>
                 )}
 

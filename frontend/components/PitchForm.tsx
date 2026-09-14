@@ -3,19 +3,19 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { submitPitch } from "@/lib/api";
-import { Zap, FileText, AlertCircle } from "lucide-react";
+import { ArrowUp, AlertCircle, FileText } from "lucide-react";
 
 const EXAMPLE_PITCHES = [
   {
-    label: "FinTech – Mobile Payments",
+    label: "FinTech Payments",
     text: `We are building ZunoPay, a B2C mobile payments app targeting unbanked users in rural India. Our team has 3 engineers and 1 designer. We are seeking $500,000 in seed funding. Business model: 1.5% transaction fee on peer-to-peer transfers. Target market: 200M+ unbanked adults in Tier 2 and Tier 3 Indian cities. We plan to integrate with UPI and launch in Maharashtra first.`,
   },
   {
-    label: "HealthTech – AI Diagnostics",
+    label: "HealthTech AI",
     text: `MedBot Health is an AI-powered diagnostic assistant for rural clinics in Southeast Asia. We use a fine-tuned NLP model trained on 1.2M clinical notes. Budget: $300K seed. Business model: SaaS subscription at $49/month per clinic. Team of 5. Target: 50,000 rural clinics across Vietnam, Indonesia, and Philippines. Current traction: 3 pilot clinics, 12-week retention of 88%.`,
   },
   {
-    label: "SaaS – B2B Logistics",
+    label: "B2B Logistics",
     text: `CargoMatch is a freight brokerage platform connecting truckers to shippers in India. We charge a 3% commission on matched freight. Current GMV: $80K/month. Team: 8 people. Raising $1.5M Series A to expand to 5 new cities and build a driver mobile app. LTV:CAC ratio is 4.1:1. Gross margin: 62%.`,
   },
 ];
@@ -25,7 +25,6 @@ export default function PitchForm() {
   const [pitch, setPitch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const charCount = pitch.length;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,95 +42,83 @@ export default function PitchForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="fade-in" style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
-      {/* Example pitch loader */}
-      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-        {EXAMPLE_PITCHES.map((ex) => (
-          <button
-            key={ex.label}
-            type="button"
-            id={`example-${ex.label.toLowerCase().replace(/\W+/g, "-")}`}
-            className="btn btn-ghost btn-sm"
-            onClick={() => { setPitch(ex.text); setError(null); }}
-            style={{ fontSize: "0.78rem" }}
-          >
-            <FileText size={12} />
-            {ex.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Pitch textarea */}
-      <div style={{ position: "relative" }}>
+    <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+      {/* Input container styled like a clean prompt box */}
+      <div
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)",
+          background: "var(--bg-surface)",
+          padding: "var(--space-4)",
+          boxShadow: "var(--shadow-md)",
+          transition: "border-color 0.15s ease",
+        }}
+      >
         <textarea
           id="pitch-input"
           className="textarea"
-          rows={10}
-          placeholder={`Describe your startup pitch in detail. Include:\n• Industry & target market\n• Business model & revenue strategy\n• Team size & key expertise\n• Funding ask & use of capital\n• Current traction (users, revenue, pilots)\n\nThe more detail you provide, the more precise the analysis.`}
+          rows={6}
+          placeholder="Describe your startup, business model, market, team, funding, technology, and any known risks..."
           value={pitch}
           onChange={(e) => { setPitch(e.target.value); setError(null); }}
           disabled={isLoading}
-          style={{ minHeight: "280px", fontSize: "0.92rem" }}
+          style={{
+            border: "none",
+            boxShadow: "none",
+            padding: 0,
+            fontSize: "0.98rem",
+            lineHeight: 1.6,
+            minHeight: "160px",
+            background: "transparent",
+          }}
         />
-        <span style={{
-          position: "absolute", bottom: "var(--space-3)", right: "var(--space-4)",
-          fontSize: "0.75rem", color: "var(--text-muted)"
-        }}>
-          {charCount.toLocaleString()} chars
-        </span>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "var(--space-3)", borderTop: "1px solid var(--bg-elevated)" }}>
+          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+            {EXAMPLE_PITCHES.map((ex) => (
+              <button
+                key={ex.label}
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => { setPitch(ex.text); setError(null); }}
+                style={{ fontSize: "0.78rem", padding: "3px 8px" }}
+              >
+                <FileText size={12} />
+                {ex.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            id="submit-evaluate"
+            type="submit"
+            className="btn btn-primary"
+            disabled={isLoading || !pitch.trim()}
+            style={{ borderRadius: "var(--radius-md)", padding: "8px 16px" }}
+          >
+            {isLoading ? (
+              <span className="spinner" style={{ width: 14, height: 14, borderTopColor: "#fff" }} />
+            ) : (
+              <>
+                Evaluate Startup
+                <ArrowUp size={16} />
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Error */}
       {error && (
         <div style={{
-          display: "flex", alignItems: "center", gap: "var(--space-3)",
-          padding: "var(--space-4)", borderRadius: "var(--radius-md)",
-          background: "rgba(248,81,73,0.10)", border: "1px solid var(--danger)",
-          color: "var(--danger)", fontSize: "0.88rem"
+          display: "flex", alignItems: "center", gap: "var(--space-2)",
+          padding: "var(--space-3) var(--space-4)", borderRadius: "var(--radius-md)",
+          background: "var(--danger-bg)", border: "1px solid var(--danger-border)",
+          color: "var(--danger-text)", fontSize: "0.88rem"
         }}>
           <AlertCircle size={16} />
           {error}
         </div>
       )}
-
-      {/* Submit */}
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-4)" }}>
-        <button
-          id="submit-evaluate"
-          type="submit"
-          className="btn btn-primary btn-lg"
-          disabled={isLoading || !pitch.trim()}
-          style={{ flex: 1 }}
-        >
-          {isLoading ? (
-            <>
-              <span className="spinner" style={{ width: 18, height: 18 }} />
-              Initialising Evaluation…
-            </>
-          ) : (
-            <>
-              <Zap size={18} />
-              Evaluate Startup
-            </>
-          )}
-        </button>
-        {pitch && !isLoading && (
-          <button
-            id="clear-pitch"
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => { setPitch(""); setError(null); }}
-          >
-            Clear
-          </button>
-        )}
-      </div>
-
-      {/* Info */}
-      <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center" }}>
-        Five domain-specialist agents (Finance, Legal, Market, Operations, Technology) will evaluate your pitch
-        against historical precedent using calibrated evidence-weighted fusion.
-      </p>
     </form>
   );
 }
