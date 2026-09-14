@@ -44,10 +44,13 @@ async def context_router_node(state: ReviewBoardState) -> dict:
 
     prompt = (
         "You are the Context Router for AIRB, an AI pitch evaluation system.\n"
-        "Parse the following startup pitch into a structured JSON matching the DigitalTwin schema.\n"
+        "Extract structured startup information from the provided pitch into the DigitalTwin schema.\n"
         "Fields to extract if present: industry, location, budget (float in USD), business_model_summary, "
         "team_size (int), revenue_model, target_market, competitive_advantage, regulatory_environment, tech_stack, traction.\n"
-        "Rule: Do NOT invent or hallucinate missing information. If a field is not mentioned or unclear, set it to null.\n\n"
+        "Rules:\n"
+        "- Do NOT invent or hallucinate missing information.\n"
+        "- Extract all details that ARE explicitly stated or directly inferable from the pitch.\n"
+        "- If a field is not mentioned or unclear, set it to null.\n\n"
         f"Pitch:\n{pitch}"
     )
 
@@ -60,9 +63,29 @@ async def context_router_node(state: ReviewBoardState) -> dict:
             contents=prompt,
             config=genai_types.GenerateContentConfig(
                 response_mime_type="application/json",
+                response_schema=DigitalTwin,
             ),
         )
-        dt = DigitalTwin.model_validate_json(response.text)
+        raw_text = response.text.strip() if response and response.text else "{}"
+        if "```" in raw_text:
+            raw_text = raw_text.split("```")[1]
+            if raw_text.startswith("json"):
+                raw_text = raw_text[4:].strip()
+
+        import json
+        data = json.loads(raw_text)
+        if isinstance(data, dict):
+            if "digital_twin" in data and isinstance(data["digital_twin"], dict):
+                data = data["digital_twin"]
+            elif "DigitalTwin" in data and isinstance(data["DigitalTwin"], dict):
+                data = data["DigitalTwin"]
+            elif "result" in data and isinstance(data["result"], dict):
+                data = data["result"]
+            dt = DigitalTwin.model_validate(data)
+        else:
+            dt = DigitalTwin.model_validate_json(raw_text)
+
+        logger.info(f"[{eval_id}] Context router extracted digital twin: {dt.model_dump()}")
         return {"digital_twin": dt.model_dump()}
     except Exception as exc:
         logger.error(f"[{eval_id}] Context Router Gemini call failed: {exc}")

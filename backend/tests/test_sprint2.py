@@ -810,3 +810,59 @@ class TestHITLResumeNode:
         route = route_after_conflict(state)
         assert route == "fusion", f"Expected 'fusion' after 1 HITL round, got {route!r}"
 
+
+# ── Context Router tests (F-01) ────────────────────────────────────────────────
+
+class TestContextRouter:
+
+    @pytest.mark.asyncio
+    async def test_context_router_extracts_detailed_pitch(self):
+        """Verify context router populates available DigitalTwin fields for a detailed pitch without hallucinating missing ones."""
+        example_pitch = (
+            "We are building an AI-powered financial intelligence platform for small and mid-sized businesses. "
+            "The platform connects to a company’s financial data, analyzes cash flow, revenue, expenses, "
+            "and key business metrics, and provides real-time insights and recommendations. Our goal is to help "
+            "business owners identify financial risks early, improve cash-flow management, and make better decisions "
+            "without needing a dedicated financial analyst. We plan to offer the product as a SaaS subscription "
+            "with tiered pricing based on company size and usage."
+        )
+
+        mock_gemini_response = MagicMock()
+        mock_gemini_response.text = json.dumps({
+            "industry": "FinTech",
+            "location": None,
+            "budget": None,
+            "business_model_summary": "AI-powered financial intelligence platform for SMBs that connects to financial data to analyze cash flow, revenue, and expenses.",
+            "team_size": None,
+            "revenue_model": "SaaS subscription with tiered pricing based on company size and usage",
+            "target_market": "Small and mid-sized businesses (SMBs)",
+            "competitive_advantage": "Real-time financial insights without needing a dedicated financial analyst",
+            "regulatory_environment": None,
+            "tech_stack": "AI-powered platform",
+            "traction": None,
+        })
+
+        mock_client = MagicMock()
+        mock_client.aio.models.generate_content = AsyncMock(return_value=mock_gemini_response)
+
+        state = {
+            "startup_pitch": example_pitch,
+            "evaluation_id": "test-cr-001",
+        }
+
+        with patch("google.genai.Client", return_value=mock_client), \
+             patch("config.Config.llm.google_api_key", "test_key"):
+            from graph.nodes.context_router import context_router_node
+            res = await context_router_node(state)
+
+        dt = res["digital_twin"]
+        assert dt is not None
+        assert dt != {}
+        assert dt["industry"] == "FinTech"
+        assert dt["revenue_model"] == "SaaS subscription with tiered pricing based on company size and usage"
+        assert dt["target_market"] == "Small and mid-sized businesses (SMBs)"
+        assert dt["location"] is None
+        assert dt["budget"] is None
+        assert dt["team_size"] is None
+
+
