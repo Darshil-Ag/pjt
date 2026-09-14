@@ -283,6 +283,7 @@ export default function DecisionPage() {
                           const risk = String(c.primary_risk_category ?? "General");
                           const summary = String(c.root_cause_summary ?? "");
                           const rawText = String(c.raw_text ?? "");
+                          const industry = c.industry ? String(c.industry) : null;
                           const similarity = typeof c.similarity_score === "number"
                             ? (c.similarity_score * 100).toFixed(1) + "%"
                             : null;
@@ -294,9 +295,9 @@ export default function DecisionPage() {
                                   <code style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.85rem", color: "var(--accent-300)", fontWeight: 600 }}>
                                     {cid}
                                   </code>
-                                  {c.industry && (
+                                  {industry && (
                                     <span style={{ fontSize: "0.75rem", padding: "2px 8px", borderRadius: "999px", background: "var(--bg-base)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-                                      {String(c.industry)}
+                                      {industry}
                                     </span>
                                   )}
                                   <span className={`domain-chip ${risk.toLowerCase()}`}>
