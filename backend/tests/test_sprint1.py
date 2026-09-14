@@ -348,3 +348,12 @@ class TestDatasetIntegrity:
         assert not (grounding_ids & test_ids), "Grounding and test overlap!"
         assert not (calibration_ids & test_ids), "Calibration and test overlap!"
         assert len(cases) == 20
+
+    def test_f03_hard_gate_detects_test_leakage(self):
+        """SRS F-03 Hard Gate: Must raise AssertionError if a test case enters the index."""
+        from unittest.mock import MagicMock
+        from rag.ingest import check_no_test_cases_in_index
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": ["case_016"]}  # case_016 is in test split in manifest
+        with pytest.raises(AssertionError, match="Test set leakage detected"):
+            check_no_test_cases_in_index(mock_collection)
