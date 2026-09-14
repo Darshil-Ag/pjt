@@ -1,7 +1,6 @@
 """
-Node: HITL (Human-in-the-Loop)
-Responsibility: Generate clarifying question; pause graph with persisted checkpoint;
-                resume with user's answer merged into digital_twin (SRS F-09)
+Node: HITL Pause & Prompt Generator
+Responsibility: Evaluate variance → pause execution & construct structured human question if CI > theta (SRS F-08)
 LLM: Gemini 2.5 Flash — question generation only.
 
 Sprint 1: STUB — node signature defined; question generation implemented Sprint 2.
