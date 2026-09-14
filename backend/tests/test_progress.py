@@ -93,3 +93,40 @@ class TestProgressAPI:
         assert status_data["evaluation_id"] == eval_id
         assert status_data["status"] in ["queued", "running", "complete", "error"]
         assert "agent_status" in status_data
+
+    def test_get_decision_returns_digital_twin(self):
+        client = TestClient(app)
+        eval_id = "test-decision-dt-001"
+        create_progress(eval_id)
+        
+        mock_result = {
+            "decision": "PROCEED",
+            "final_score": 75.0,
+            "final_confidence": 0.8,
+            "final_score_uncertainty": 5.0,
+            "digital_twin": {"industry": "FinTech", "revenue_model": "SaaS"},
+            "agent_scores": {"Finance": 80.0},
+            "agent_claims": {"Finance": "Strong"},
+            "agent_weights": {"Finance": 1.0},
+            "agent_confidences": {"Finance": 0.8},
+            "agent_citations": {"Finance": []},
+            "conflict_detected": False,
+            "variance_history": [10.0],
+            "red_team_flag": False,
+            "red_team_severity": None,
+            "red_team_reasoning": "None",
+            "hitl_triggered": False,
+            "hitl_question": None,
+            "hitl_answer": None,
+            "version_info": {},
+        }
+        from progress import store_result
+        store_result(eval_id, mock_result)
+        mark_complete(eval_id)
+
+        resp = client.get(f"/api/v1/decision/{eval_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "digital_twin" in data
+        assert data["digital_twin"] == {"industry": "FinTech", "revenue_model": "SaaS"}
+
