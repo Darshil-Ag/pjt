@@ -274,20 +274,106 @@ export default function ProgressTracker({ progress }: ProgressTrackerProps) {
         </div>
       )}
 
-      {/* HITL pause notice */}
+      {/* HITL pause notice & inline form */}
       {isHITLPending && (
-        <div className="fade-in" style={{
-          marginTop: "var(--space-5)",
-          padding: "var(--space-4)",
-          borderRadius: "var(--radius-md)",
-          background: "rgba(210,153,34,0.08)",
-          border: "1px solid var(--warning)",
-          fontSize: "0.85rem",
-          color: "var(--warning)",
-        }}>
-          Pipeline paused — agents disagreed beyond the conflict threshold. Answer the question above to resume.
-        </div>
+        <InlineHITLSection
+          evaluationId={progress.evaluation_id}
+          question={progress.hitl_question}
+        />
       )}
+    </div>
+  );
+}
+
+function InlineHITLSection({
+  evaluationId,
+  question,
+}: {
+  evaluationId: string;
+  question?: string | null;
+}) {
+  const [answer, setAnswer] = React.useState("");
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!answer.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const { respondToHITL } = await import("@/lib/api");
+      await respondToHITL(evaluationId, answer.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit answer.");
+      setIsSubmitting(false);
+    }
+  }
+
+  const qText = question || "The review board detected significant domain disagreement. Please provide additional clarification to resolve the conflict.";
+
+  return (
+    <div className="fade-in" style={{
+      marginTop: "var(--space-6)",
+      padding: "var(--space-5)",
+      borderRadius: "var(--radius-md)",
+      background: "rgba(210,153,34,0.08)",
+      border: "1px solid var(--warning)",
+      display: "flex",
+      flexDirection: "column",
+      gap: "var(--space-4)",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+        <span style={{ fontSize: "1.2rem" }}>💬</span>
+        <div>
+          <h4 style={{ color: "var(--warning)", margin: 0, fontSize: "0.95rem" }}>
+            Clarification Required to Resume Pipeline
+          </h4>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0 }}>
+            Domain specialists disagreed beyond the conflict threshold. Please answer the question below.
+          </p>
+        </div>
+      </div>
+
+      <div style={{
+        padding: "var(--space-3) var(--space-4)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg-elevated)",
+        border: "1px solid var(--border)",
+      }}>
+        <p style={{ fontSize: "0.75rem", color: "var(--warning)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>
+          Question from Board
+        </p>
+        <p style={{ fontSize: "0.88rem", color: "var(--text-primary)", margin: 0, lineHeight: 1.6 }}>
+          {qText}
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+        <textarea
+          className="textarea"
+          rows={3}
+          placeholder="Type your clarifying answer here... (e.g., details on regulatory compliance, traction, or tech stack)"
+          value={answer}
+          onChange={e => { setAnswer(e.target.value); setError(null); }}
+          disabled={isSubmitting}
+        />
+
+        {error && (
+          <p style={{ color: "var(--danger)", fontSize: "0.8rem", margin: 0 }}>
+            {error}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          className="btn btn-primary btn-sm"
+          disabled={isSubmitting || !answer.trim()}
+          style={{ alignSelf: "flex-end" }}
+        >
+          {isSubmitting ? "Resuming Pipeline..." : "Submit Answer & Resume Pipeline →"}
+        </button>
+      </form>
     </div>
   );
 }

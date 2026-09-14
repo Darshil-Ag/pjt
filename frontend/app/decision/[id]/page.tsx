@@ -151,10 +151,14 @@ export default function DecisionPage() {
           )}
 
           {/* HITL Modal */}
-          {isHITLPending && trace?.hitl_question && !trace?.hitl_answer && (
+          {isHITLPending && (
             <HITLModal
               evaluationId={id}
-              question={trace.hitl_question}
+              question={
+                progress?.hitl_question ||
+                trace?.hitl_question ||
+                "The review board detected significant disagreement between domain specialists. Please provide additional clarification to resolve the conflict."
+              }
               onResolved={handleHITLResolved}
             />
           )}

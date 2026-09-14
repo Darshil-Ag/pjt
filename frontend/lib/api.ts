@@ -69,6 +69,7 @@ export interface ProgressResponse {
   current_stage: string | null;
   stages_completed: string[];
   agent_status: Record<string, AgentProgressEntry>;
+  hitl_question?: string | null;
   error_message: string | null;
   updated_at: string;
 }
