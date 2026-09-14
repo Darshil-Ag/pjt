@@ -8,7 +8,7 @@ export default function Navbar() {
         <Link href="/" className="nav-logo" id="nav-logo">
           <div style={{
             width: 26, height: 26, borderRadius: 6,
-            background: "var(--text-primary)", color: "#FFF",
+            background: "var(--text-primary)", color: "var(--bg-base)",
             display: "flex", alignItems: "center", justifyContent: "center"
           }}>
             <Sparkles size={14} />
