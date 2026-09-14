@@ -17,6 +17,24 @@ from schemas.state import ReviewBoardState
 logger = logging.getLogger(__name__)
 
 
+def _remove_additional_properties(schema: any) -> any:
+    """Recursively strip 'additionalProperties' to comply with Gemini Developer API mode requirements."""
+    if isinstance(schema, dict):
+        return {
+            k: _remove_additional_properties(v)
+            for k, v in schema.items()
+            if k != "additionalProperties"
+        }
+    if isinstance(schema, list):
+        return [_remove_additional_properties(item) for item in schema]
+    return schema
+
+
+def get_gemini_digital_twin_schema() -> dict:
+    """Return a Gemini Developer API compatible JSON schema dict for DigitalTwin."""
+    return _remove_additional_properties(DigitalTwin.model_json_schema())
+
+
 # Requirement: F-01
 # Acceptance criteria: For 20 sample pitches, all 4 mandatory fields populated;
 #                      no hallucinated fields outside defined schema.
@@ -63,7 +81,7 @@ async def context_router_node(state: ReviewBoardState) -> dict:
             contents=prompt,
             config=genai_types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=DigitalTwin,
+                response_schema=get_gemini_digital_twin_schema(),
             ),
         )
         raw_text = response.text.strip() if response and response.text else "{}"

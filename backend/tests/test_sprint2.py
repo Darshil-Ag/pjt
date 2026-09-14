@@ -865,4 +865,12 @@ class TestContextRouter:
         assert dt["budget"] is None
         assert dt["team_size"] is None
 
+    def test_schema_has_no_additional_properties(self):
+        """Verify Gemini response schema has additionalProperties stripped for Developer API compatibility."""
+        from graph.nodes.context_router import get_gemini_digital_twin_schema
+        schema = get_gemini_digital_twin_schema()
+        schema_json = json.dumps(schema)
+        assert "additionalProperties" not in schema_json, "additionalProperties must be stripped from response_schema for Gemini Developer API mode"
+
+
 
