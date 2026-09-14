@@ -88,11 +88,12 @@ def update_agent_status(
 ) -> None:
     """
     Update a single domain agent's status and optionally its score.
-    status ∈ "pending" | "running" | "complete" | "error"
-    score  — set when status="complete", None otherwise.
+    status ∈ "pending" | "running" | "answered" | "error"
+    score  — set when status="answered", None otherwise.
 
-    This lets the frontend show a checkmark + score preview per agent
-    as soon as each agent finishes (not waiting for all 5 to complete).
+    Each transition is persisted immediately with its own updated_at timestamp.
+    This lets the frontend show a per-agent score preview as soon as each agent
+    finishes, without waiting for all 5 to complete.
     """
     row = _PROGRESS.get(evaluation_id)
     if not row or domain not in row["agent_status"]:

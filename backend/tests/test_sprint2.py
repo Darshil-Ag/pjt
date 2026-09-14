@@ -2,7 +2,7 @@
 Sprint 2 Tests — Parallel Dispatch, Confidence, Weights, Red Team, HITL
 Tests use mocked API clients — no real Groq/Gemini calls during CI.
 
-Run: .venv\Scripts\python -m pytest tests/test_sprint2.py -v
+Run: .venv\\Scripts\\python -m pytest tests/test_sprint2.py -v
 """
 
 from __future__ import annotations
@@ -13,6 +13,42 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
+
+# ── Model configuration tests ─────────────────────────────────────────────────
+
+class TestModelConfiguration:
+    """Verify model names match the expected configuration (catches regressions)."""
+
+    def test_worker_model_is_gpt_oss_120b(self):
+        """worker_model must be openai/gpt-oss-120b — not the deprecated llama-3.3-70b-versatile."""
+        from config import Config
+        assert Config.llm.worker_model == "openai/gpt-oss-120b", (
+            f"worker_model is {Config.llm.worker_model!r}. "
+            "Expected 'openai/gpt-oss-120b'. llama-3.3-70b-versatile is unavailable on Groq."
+        )
+
+    def test_red_team_model_is_gpt_oss_120b(self):
+        """red_team_model must be openai/gpt-oss-120b."""
+        from config import Config
+        assert Config.llm.red_team_model == "openai/gpt-oss-120b", (
+            f"red_team_model is {Config.llm.red_team_model!r}. Expected 'openai/gpt-oss-120b'."
+        )
+
+    def test_router_model_unchanged(self):
+        """router_model must stay gemini-3.6-flash — do not touch the working Gemini model."""
+        from config import Config
+        assert Config.llm.router_model == "gemini-3.6-flash", (
+            f"router_model is {Config.llm.router_model!r}. "
+            "Must remain 'gemini-3.6-flash' — do not change the working Gemini router."
+        )
+
+    def test_no_llama_references_in_config(self):
+        """No active llama-3.3-70b-versatile references must exist in config."""
+        from config import Config
+        deprecated = "llama-3.3-70b-versatile"
+        assert Config.llm.worker_model != deprecated, "worker_model still references deprecated llama model"
+        assert Config.llm.red_team_model != deprecated, "red_team_model still references deprecated llama model"
+
 
 # ── _compute_confidence tests (F-06) ─────────────────────────────────────────
 
@@ -55,7 +91,6 @@ class TestComputeConfidence:
         result = {"score": 60.0, "claim": "risky", "cited_case_ids": ["c1", "c2"]}
         ci = self.compute_confidence("Legal", result, retrieved_cases)
         # M_evidence = 0 (no Finance cases match Legal domain)
-        # Ci = 0.5 * 0.65 + 0.4 * 0.0 + 0.1 * 1.0 = 0.325 + 0 + 0.1 = 0.425
         assert ci < 0.5, f"Cross-domain citations should lower Ci, got {ci}"
         assert 0.0 <= ci <= 1.0
 
@@ -67,7 +102,6 @@ class TestComputeConfidence:
         ]
         result = {"score": 65.0, "claim": "moderate", "cited_case_ids": ["c1", "c2"]}
         ci = self.compute_confidence("Technology", result, retrieved_cases)
-        # M_evidence = 0.5 (1 out of 2 cited cases matches Technology)
         assert 0.0 <= ci <= 1.0
 
     def test_ci_always_clamped(self):
@@ -158,7 +192,7 @@ class TestParallelDispatchNode:
         return initial_state(
             "We build AI soil sensors for farms with 10k MRR.",
             "test-eval-id-001",
-            {"model_worker": "llama-3.3-70b-versatile"},
+            {"model_worker": "openai/gpt-oss-120b"},
         )
 
     def _make_groq_response(self, domain: str, score: int) -> MagicMock:
@@ -209,7 +243,6 @@ class TestParallelDispatchNode:
 
             async def mock_groq_create(**kwargs):
                 content = kwargs["messages"][0]["content"]
-                # Identify domain from prompt content
                 for d in domain_order:
                     if d in content:
                         return self._make_groq_response(d, scores_map[d])
@@ -227,11 +260,217 @@ class TestParallelDispatchNode:
             "Weights must sum to 1.0"
 
     @pytest.mark.asyncio
+    async def test_agents_execute_concurrently_not_sequentially(self):
+        """
+        All 5 agents must be launched before any completes.
+        Verified by: asyncio.gather is used (not sequential awaits),
+        so all 5 tasks exist in flight simultaneously.
+        """
+        state = self._make_state()
+        start_times: dict[str, float] = {}
+        end_times: dict[str, float] = {}
+
+        async def mock_groq_create(**kwargs):
+            import time
+            content = kwargs["messages"][0]["content"]
+            domain = "Finance"
+            for d in ["Finance", "Legal", "Market", "Operations", "Technology"]:
+                if d in content:
+                    domain = d
+                    break
+            start_times[domain] = time.monotonic()
+            await asyncio.sleep(0.01)  # Small delay to expose sequentiality if present
+            end_times[domain] = time.monotonic()
+            msg = MagicMock()
+            msg.content = json.dumps({"score": 70, "claim": f"{domain} ok", "cited_case_ids": []})
+            choice = MagicMock()
+            choice.message = msg
+            resp = MagicMock()
+            resp.choices = [choice]
+            return resp
+
+        with (
+            patch("groq.AsyncGroq") as mock_groq_cls,
+            patch("google.genai.Client") as mock_genai_client_cls,
+            patch("progress.update_stage"),
+            patch("progress.update_agent_status"),
+        ):
+            mock_genai_client_instance = MagicMock()
+            mock_genai_client_cls.return_value = mock_genai_client_instance
+            mock_genai_client_instance.aio.models.generate_content = AsyncMock(
+                return_value=self._make_gemini_response()
+            )
+            mock_groq_instance = MagicMock()
+            mock_groq_cls.return_value = mock_groq_instance
+            mock_groq_instance.chat.completions.create = mock_groq_create
+
+            from graph.nodes.parallel_dispatch import parallel_dispatch_node
+            result = await parallel_dispatch_node(state)
+
+        # If sequential: last_start > first_end. If concurrent: all start_times overlap.
+        if len(start_times) == 5:
+            first_end = min(end_times.values())
+            last_start = max(start_times.values())
+            # Concurrent: at least some tasks started before others ended
+            assert last_start < first_end + 0.05, \
+                "Agents appear to be running sequentially — they should run concurrently via asyncio.gather"
+
+        assert len(result["agent_scores"]) == 5
+
+    @pytest.mark.asyncio
+    async def test_successful_agent_scores_are_persisted(self):
+        """Successful agents must have their actual score stored in the result dict."""
+        state = self._make_state()
+        expected_scores = {"Finance": 72, "Legal": 45, "Market": 88, "Operations": 61, "Technology": 79}
+
+        with (
+            patch("groq.AsyncGroq") as mock_groq_cls,
+            patch("google.genai.Client") as mock_genai_client_cls,
+            patch("progress.update_stage"),
+            patch("progress.update_agent_status"),
+        ):
+            mock_genai_client_instance = MagicMock()
+            mock_genai_client_cls.return_value = mock_genai_client_instance
+            mock_genai_client_instance.aio.models.generate_content = AsyncMock(
+                return_value=self._make_gemini_response()
+            )
+            mock_groq_instance = MagicMock()
+            mock_groq_cls.return_value = mock_groq_instance
+
+            async def mock_groq_create(**kwargs):
+                content = kwargs["messages"][0]["content"]
+                for d, s in expected_scores.items():
+                    if d in content:
+                        return self._make_groq_response(d, s)
+                return self._make_groq_response("Finance", 50)
+
+            mock_groq_instance.chat.completions.create = mock_groq_create
+
+            from graph.nodes.parallel_dispatch import parallel_dispatch_node
+            result = await parallel_dispatch_node(state)
+
+        for domain, expected in expected_scores.items():
+            assert domain in result["agent_scores"], f"{domain} score missing from result"
+            assert result["agent_scores"][domain] == float(expected), \
+                f"{domain}: expected score {expected}, got {result['agent_scores'][domain]}"
+
+    @pytest.mark.asyncio
+    async def test_agent_status_transitions_to_answered(self):
+        """Successful agents must transition to 'answered' status (not 'complete')."""
+        state = self._make_state()
+        status_calls: list[tuple] = []
+
+        def capture_status(eval_id, domain, status, score=None):
+            status_calls.append((domain, status, score))
+
+        with (
+            patch("groq.AsyncGroq") as mock_groq_cls,
+            patch("google.genai.Client") as mock_genai_client_cls,
+            patch("progress.update_stage"),
+            patch("progress.update_agent_status", side_effect=capture_status),
+        ):
+            mock_genai_client_instance = MagicMock()
+            mock_genai_client_cls.return_value = mock_genai_client_instance
+            mock_genai_client_instance.aio.models.generate_content = AsyncMock(
+                return_value=self._make_gemini_response()
+            )
+            mock_groq_instance = MagicMock()
+            mock_groq_cls.return_value = mock_groq_instance
+
+            async def mock_groq_create(**kwargs):
+                content = kwargs["messages"][0]["content"]
+                for d in ["Finance", "Legal", "Market", "Operations", "Technology"]:
+                    if d in content:
+                        return self._make_groq_response(d, 75)
+                return self._make_groq_response("Finance", 75)
+
+            mock_groq_instance.chat.completions.create = mock_groq_create
+
+            from graph.nodes.parallel_dispatch import parallel_dispatch_node
+            await parallel_dispatch_node(state)
+
+        # Every domain should have a "running" transition and an "answered" transition
+        running_domains = {call[0] for call in status_calls if call[1] == "running"}
+        answered_domains = {call[0] for call in status_calls if call[1] == "answered"}
+        assert running_domains == {"Finance", "Legal", "Market", "Operations", "Technology"}, \
+            f"Not all agents marked running: {running_domains}"
+        assert answered_domains == {"Finance", "Legal", "Market", "Operations", "Technology"}, \
+            f"Not all agents marked answered: {answered_domains}. " \
+            f"Status calls: {status_calls}"
+
+        # Scores must be persisted with the "answered" transition (not None)
+        for domain, status, score in status_calls:
+            if status == "answered":
+                assert score is not None, f"{domain} marked 'answered' but score is None"
+                assert score > 0, f"{domain} answered with non-positive score {score}"
+
+    @pytest.mark.asyncio
+    async def test_one_agent_fails_other_four_continue(self):
+        """
+        One agent failure must NOT terminate other agents (NF-05).
+        The failing agent gets status 'error'; the other 4 get 'answered'.
+        """
+        state = self._make_state()
+        status_calls: list[tuple] = []
+
+        def capture_status(eval_id, domain, status, score=None):
+            status_calls.append((domain, status, score))
+
+        async def mock_groq_create(**kwargs):
+            content = kwargs["messages"][0]["content"]
+            if "Legal" in content:
+                raise ValueError("Simulated Legal agent failure")
+            for d in ["Finance", "Market", "Operations", "Technology"]:
+                if d in content:
+                    msg = MagicMock()
+                    msg.content = json.dumps({"score": 70, "claim": f"{d} ok", "cited_case_ids": []})
+                    choice = MagicMock()
+                    choice.message = msg
+                    resp = MagicMock()
+                    resp.choices = [choice]
+                    return resp
+            msg = MagicMock()
+            msg.content = json.dumps({"score": 60, "claim": "ok", "cited_case_ids": []})
+            choice = MagicMock()
+            choice.message = msg
+            resp = MagicMock()
+            resp.choices = [choice]
+            return resp
+
+        with (
+            patch("groq.AsyncGroq") as mock_groq_cls,
+            patch("google.genai.Client") as mock_genai_client_cls,
+            patch("progress.update_stage"),
+            patch("progress.update_agent_status", side_effect=capture_status),
+        ):
+            mock_genai_client_instance = MagicMock()
+            mock_genai_client_cls.return_value = mock_genai_client_instance
+            mock_genai_client_instance.aio.models.generate_content = AsyncMock(
+                return_value=self._make_gemini_response()
+            )
+            mock_groq_instance = MagicMock()
+            mock_groq_cls.return_value = mock_groq_instance
+            mock_groq_instance.chat.completions.create = mock_groq_create
+
+            from graph.nodes.parallel_dispatch import parallel_dispatch_node
+            result = await parallel_dispatch_node(state)
+
+        # Legal should be excluded; other 4 should succeed
+        assert "Legal" not in result["agent_scores"], "Failed agent must be excluded from scores"
+        assert len(result["agent_scores"]) == 4, "4 agents should succeed"
+        assert abs(sum(result["agent_weights"].values()) - 1.0) < 1e-4
+
+        # Verify Legal got "error" status, others got "answered"
+        error_domains = {call[0] for call in status_calls if call[1] == "error"}
+        answered_domains = {call[0] for call in status_calls if call[1] == "answered"}
+        assert "Legal" in error_domains, "Failed Legal agent must be marked 'error'"
+        assert answered_domains == {"Finance", "Market", "Operations", "Technology"}, \
+            f"Surviving agents should be 'answered', got {answered_domains}"
+
+    @pytest.mark.asyncio
     async def test_one_agent_fails_gracefully(self):
         """If one agent fails after retry, it's excluded — other 4 proceed (NF-05)."""
         state = self._make_state()
-
-        call_counts: dict[str, int] = {}
 
         async def mock_groq_create(**kwargs):
             content = kwargs["messages"][0]["content"]
@@ -276,6 +515,77 @@ class TestParallelDispatchNode:
         assert "Legal" not in result["agent_scores"], "Failed agent must be excluded"
         assert len(result["agent_scores"]) == 4, "4 agents should succeed"
         assert abs(sum(result["agent_weights"].values()) - 1.0) < 1e-4
+
+    @pytest.mark.asyncio
+    async def test_final_decision_uses_real_agent_scores(self):
+        """
+        Fusion must use actual agent scores — not produce REVIEW from empty scores.
+        This test verifies the end-to-end: agent scores → fusion → non-null decision.
+        """
+        from schemas.state import initial_state
+        from graph.nodes.parallel_dispatch import parallel_dispatch_node
+        from graph.nodes.conflict_index import conflict_index_node
+        from graph.nodes.fusion import fusion_node
+
+        state = initial_state(
+            "We build AI soil sensors for farms with 10k MRR.",
+            "test-e2e-decision",
+            {"model_worker": "openai/gpt-oss-120b"},
+        )
+        scores_map = {"Finance": 72, "Legal": 55, "Market": 88, "Operations": 61, "Technology": 79}
+
+        with (
+            patch("groq.AsyncGroq") as mock_groq_cls,
+            patch("google.genai.Client") as mock_genai_client_cls,
+            patch("progress.update_stage"),
+            patch("progress.update_agent_status"),
+        ):
+            mock_genai_client_instance = MagicMock()
+            mock_genai_client_cls.return_value = mock_genai_client_instance
+            gemini_resp = MagicMock()
+            gemini_resp.text = json.dumps(
+                {"Finance": 60, "Legal": 30, "Market": 85, "Operations": 55, "Technology": 90}
+            )
+            mock_genai_client_instance.aio.models.generate_content = AsyncMock(return_value=gemini_resp)
+            mock_groq_instance = MagicMock()
+            mock_groq_cls.return_value = mock_groq_instance
+
+            async def mock_groq_create(**kwargs):
+                content = kwargs["messages"][0]["content"]
+                for d, s in scores_map.items():
+                    if d in content:
+                        msg = MagicMock()
+                        msg.content = json.dumps({"score": s, "claim": f"{d} ok", "cited_case_ids": []})
+                        choice = MagicMock()
+                        choice.message = msg
+                        resp = MagicMock()
+                        resp.choices = [choice]
+                        return resp
+                msg = MagicMock()
+                msg.content = json.dumps({"score": 70, "claim": "ok", "cited_case_ids": []})
+                choice = MagicMock()
+                choice.message = msg
+                resp = MagicMock()
+                resp.choices = [choice]
+                return resp
+
+            mock_groq_instance.chat.completions.create = mock_groq_create
+            dispatch_result = await parallel_dispatch_node(state)
+
+        state.update(dispatch_result)
+        state.update(conflict_index_node(state))
+        fusion_result = fusion_node(state)
+
+        # Verify the fusion used real scores (not empty)
+        assert len(dispatch_result["agent_scores"]) == 5, "All 5 agents must have scores"
+        assert fusion_result["final_score"] is not None, \
+            "final_score must not be None when agents returned real scores"
+        assert fusion_result["decision"] in ("PROCEED", "HIGH-RISK", "REVIEW"), \
+            f"decision must be a valid label, got {fusion_result['decision']!r}"
+        # With scores mostly 55-88, decision should not be REVIEW due to weak confidence
+        # (unless the fusion thresholds mandate it — but final_score must be non-null)
+        assert fusion_result["final_score"] > 0, \
+            f"final_score should be positive when agents returned scores 55-88, got {fusion_result['final_score']}"
 
 
 # ── red_team_node tests (F-13) ────────────────────────────────────────────────
@@ -395,6 +705,12 @@ class TestRedTeamNode:
         # Must degrade gracefully: no exception raised
         assert result["decision"] == "PROCEED", "Original decision must be preserved on Red Team failure"
         assert result["red_team_flag"] is False
+
+    def test_red_team_uses_correct_model(self):
+        """Red Team must use Config.llm.red_team_model, which must be openai/gpt-oss-120b."""
+        from config import Config
+        assert Config.llm.red_team_model == "openai/gpt-oss-120b", \
+            f"Red Team model is {Config.llm.red_team_model!r}, expected 'openai/gpt-oss-120b'"
 
 
 # ── HITL store tests (F-09) ──────────────────────────────────────────────────

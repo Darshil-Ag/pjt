@@ -125,6 +125,10 @@ async def _single_agent_call(
     """
     Single domain agent coroutine.
 
+    Each agent independently marks itself "running" at launch and "answered"
+    (with score) or "error" when done. These transitions are persisted immediately
+    with their own updated_at timestamp — no batching, no waiting for other agents.
+
     Returns {score, claim, cited_case_ids} on success.
     Returns None after one retry on malformed JSON (F-05 acceptance criterion).
     Failure is logged and the agent is excluded from fusion — does NOT crash the run (NF-05).
@@ -132,6 +136,8 @@ async def _single_agent_call(
     from progress import update_agent_status
     from groq import AsyncGroq
 
+    # Mark this specific agent running immediately at coroutine start,
+    # independently of other agents (concurrent, not sequential).
     update_agent_status(eval_id, domain, "running")
 
     client = AsyncGroq(api_key=Config.llm.groq_api_key)
@@ -166,7 +172,8 @@ async def _single_agent_call(
             claim = str(parsed["claim"])
             cited = [str(c) for c in parsed.get("cited_case_ids", [])]
 
-            update_agent_status(eval_id, domain, "complete", score=score)
+            # Persist "answered" + score immediately — independent of other agents
+            update_agent_status(eval_id, domain, "answered", score=score)
             logger.info(f"[{eval_id}] {domain} agent: score={score:.0f}, cited={cited}")
             return {"score": score, "claim": claim, "cited_case_ids": cited}
 
@@ -309,11 +316,9 @@ async def parallel_dispatch_node(state: ReviewBoardState) -> dict:
     # This MUST run before agent calls — Ri must be independent of Si.
     domain_relevance = await _get_domain_relevance(startup_pitch, eval_id)
 
-    # ── Step 2: Run all 5 agents concurrently (F-05) ─────────────────────────
-    # Mark all running before gather so progress store shows immediate activity
-    for domain in DOMAINS:
-        update_agent_status(eval_id, domain, "running")
-
+    # ── Step 2: Run all 5 agents concurrently (F-05) ────────────────────────────
+    # Each coroutine marks itself "running" independently at launch.
+    # One agent failure does NOT cancel or affect the other four.
     agent_tasks = [
         _single_agent_call(domain, startup_pitch, digital_twin, retrieved_cases, eval_id)
         for domain in DOMAINS
