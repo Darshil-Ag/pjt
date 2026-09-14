@@ -873,4 +873,20 @@ class TestContextRouter:
         assert "additionalProperties" not in schema_json, "additionalProperties must be stripped from response_schema for Gemini Developer API mode"
 
 
+# ── RAG Auto-Indexing tests (F-04) ────────────────────────────────────────────
+
+class TestRAGAutoIndexing:
+
+    @pytest.mark.asyncio
+    async def test_async_retrieve_auto_indexes_empty_corpus(self):
+        """async_retrieve must auto-build index if ChromaDB count is 0."""
+        from rag.index import async_retrieve, get_collection
+        col = get_collection()
+        res = await async_retrieve("AI financial SaaS platform")
+        assert col.count() >= 12
+        assert len(res) > 0
+        assert "similarity_score" in res[0]
+
+
+
 

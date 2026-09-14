@@ -46,6 +46,20 @@ app.add_middleware(
 app.include_router(router, prefix="/api/v1")
 
 
+# ── Startup Event ──────────────────────────────────────────────────────────────
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Ensure ChromaDB grounding index is populated on startup."""
+    try:
+        from rag.index import get_collection, build_index
+        col = get_collection()
+        if col.count() == 0:
+            logging.info("ChromaDB collection is empty on startup. Building grounding corpus index...")
+            build_index()
+    except Exception as exc:
+        logging.warning(f"Startup index build skipped/failed: {exc}")
+
+
 # ── Health Check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["System"])
 async def health() -> dict:
