@@ -61,6 +61,8 @@ class _LLMConfig:
     red_team_model: str = _cfg["llm"]["red_team_model"]
     groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
     google_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
+    supabase_url: str = os.environ.get("SUPABASE_URL", "")
+    supabase_key: str = os.environ.get("SUPABASE_KEY", "")
 
 
 class _CalibrationConfig:

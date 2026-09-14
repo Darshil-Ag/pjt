@@ -5,16 +5,19 @@ Endpoints:
   POST /evaluate               — Submit pitch; returns immediately with status "queued";
                                  graph runs as background asyncio task
   GET  /status/{id}            — Poll live pipeline progress (per-node + per-agent)
-  POST /hitl-respond           — Submit HITL answer, resume graph execution
+  POST /hitl-respond           — Submit HITL answer; loads Supabase checkpoint, resumes graph
   GET  /decision/{id}          — Get full decision trace for a completed evaluation
   GET  /replay/{id}            — Return stored trace without re-invoking any LLM (F-17)
 
-Sprint 1:
-  - POST /evaluate: returns "queued" immediately; background task is wired but
-    graph nodes still raise NotImplementedError until Sprint 2, so the task will
-    transition to "error" state. Progress store + /status polling is fully functional.
-  - GET /status/{id}: IMPLEMENTED — returns live progress including per-agent status.
-  - All other routes: stubbed.
+Sprint 2:
+  - POST /evaluate: full end-to-end pipeline (context router → parallel dispatch →
+    conflict index → [HITL or] fusion → sensitivity sweep → red team → logger)
+  - GET /status/{id}: returns live progress + per-agent scores + hitl_question
+  - POST /hitl-respond: IMPLEMENTED — loads Supabase checkpoint, merges answer,
+    resumes pipeline from parallel dispatch (F-09 hard gate satisfied)
+  - GET /decision/{id}: returns full decision trace from in-memory result store
+    (SQLite persistence deferred to Sprint 3)
+  - GET /replay/{id}: stub (Sprint 3)
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ import traceback
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config import Config
@@ -59,6 +62,7 @@ class StatusResponse(BaseModel):
     current_stage: Optional[str]
     stages_completed: list[str]
     agent_status: dict[str, StatusAgentEntry]
+    hitl_question: Optional[str] = None   # populated when status == "hitl_pending"
     error_message: Optional[str]
     updated_at: str
 
@@ -74,17 +78,68 @@ class HITLRespondResponse(BaseModel):
     message: str
 
 
+class DecisionResponse(BaseModel):
+    evaluation_id: str
+    decision: Optional[str]          # PROCEED | HIGH-RISK | REVIEW
+    final_score: Optional[float]
+    final_confidence: Optional[float]
+    final_score_uncertainty: Optional[float]
+    agent_scores: dict[str, float]
+    agent_claims: dict[str, str]
+    agent_weights: dict[str, float]
+    agent_confidences: dict[str, float]
+    agent_citations: dict[str, list]
+    conflict_detected: bool
+    variance_history: list[float]
+    red_team_flag: bool
+    red_team_severity: Optional[str]
+    red_team_reasoning: Optional[str]
+    hitl_triggered: bool
+    hitl_question: Optional[str]
+    hitl_answer: Optional[str]
+    version_info: dict
+
+
+# ── Node imports (lazy, inside functions, to avoid circular imports) ──────────
+
+def _import_nodes():
+    from graph.nodes import (
+        context_router_node,
+        retrieval_node,
+        parallel_dispatch_node,
+        conflict_index_node,
+        fusion_node,
+        sensitivity_sweep_node,
+        red_team_node,
+        evaluation_logger_node,
+    )
+    from graph.nodes.conflict_index import route_after_conflict
+    from graph.nodes.hitl import hitl_node, hitl_resume_node
+    return (
+        context_router_node, retrieval_node, parallel_dispatch_node,
+        conflict_index_node, route_after_conflict, hitl_node, hitl_resume_node,
+        fusion_node, sensitivity_sweep_node, red_team_node, evaluation_logger_node,
+    )
+
+
 # ── Background Graph Runner ───────────────────────────────────────────────────
 
 async def _run_evaluation(evaluation_id: str, startup_pitch: str) -> None:
     """
     Background coroutine: builds the LangGraph state and invokes the full pipeline.
-    Updates the progress store at every step. Transitions to "error" if any node
-    raises (expected in Sprint 1 since stub nodes raise NotImplementedError).
 
-    Sprint 2: replace the NotImplementedError stubs in each node with real logic;
-              this runner requires no changes — it will automatically work end-to-end.
+    Pipeline: context_router → retrieval → parallel_dispatch → conflict_index
+                → [hitl if CI > theta] | [fusion → sensitivity_sweep → red_team → logger]
+
+    On HITL trigger: persists state to Supabase and suspends. Resumed via POST /hitl-respond.
+    On any node error: transitions to "error" in progress store (NF-05 graceful degradation).
     """
+    (
+        context_router_node, retrieval_node, parallel_dispatch_node,
+        conflict_index_node, route_after_conflict, hitl_node, hitl_resume_node,
+        fusion_node, sensitivity_sweep_node, red_team_node, evaluation_logger_node,
+    ) = _import_nodes()
+
     try:
         version_info = {
             "model_worker": Config.llm.worker_model,
@@ -101,56 +156,106 @@ async def _run_evaluation(evaluation_id: str, startup_pitch: str) -> None:
         }
         state = initial_state(startup_pitch, evaluation_id, version_info)
 
-        # Sprint 2: replace with:
-        #   from graph.graph import get_compiled_graph
-        #   from langgraph.checkpoint.sqlite import SqliteSaver
-        #   checkpointer = SqliteSaver(Config.sqlite_db_path)
-        #   graph = get_compiled_graph(checkpointer=checkpointer)
-        #   await graph.ainvoke(state, config={"configurable": {"thread_id": evaluation_id}})
-
-        # Sprint 1: directly call nodes that are implemented; others will raise NotImplementedError.
-        # The progress store transitions to "error" cleanly in that case.
-        from graph.nodes import (
-            context_router_node,
-            retrieval_node,
-            parallel_dispatch_node,
-            conflict_index_node,
-            fusion_node,
-            sensitivity_sweep_node,
-            red_team_node,
-            evaluation_logger_node,
-        )
-
-        # Each await propagates state updates into the progress store via update_stage().
+        # ── Sprint 2 pipeline (manual sequential calls — LangGraph.ainvoke wired in Sprint 3) ──
         state.update(await context_router_node(state))
         state.update(await retrieval_node(state))
         state.update(await parallel_dispatch_node(state))
         state.update(conflict_index_node(state))
 
-        from graph.nodes.conflict_index import route_after_conflict
-        from graph.nodes.hitl import hitl_node
         if route_after_conflict(state) == "hitl":
+            # HITL path: hitl_node persists state to Supabase before returning
             state.update(await hitl_node(state))
-            prog.mark_hitl_pending(evaluation_id)
-            return  # Paused; resumed via POST /hitl-respond
+            # Progress store already updated to hitl_pending inside hitl_node
+            return  # Suspended — resumed via POST /hitl-respond
 
-        state.update(fusion_node(state))
-        state.update(sensitivity_sweep_node(state))
-        state.update(await red_team_node(state))
-        state.update(evaluation_logger_node(state))
+        await _run_post_fusion(evaluation_id, state, fusion_node, sensitivity_sweep_node,
+                               red_team_node, evaluation_logger_node)
 
-        prog.mark_complete(evaluation_id)
-        logger.info(f"Evaluation completed: {evaluation_id}")
-
-    except NotImplementedError as exc:
-        # Expected in Sprint 1 — stub nodes raise this
-        msg = f"Stub node not yet implemented: {exc}"
-        logger.warning(f"[{evaluation_id}] {msg}")
-        prog.mark_error(evaluation_id, msg)
     except Exception:
         msg = traceback.format_exc()
         logger.error(f"[{evaluation_id}] Evaluation error:\n{msg}")
         prog.mark_error(evaluation_id, msg)
+
+
+async def _resume_evaluation(evaluation_id: str, state: dict) -> None:
+    """
+    Resume pipeline from parallel_dispatch after a HITL answer is submitted.
+    Called after loading the checkpoint from Supabase and merging the answer.
+
+    This function satisfies F-09's round-trip requirement:
+      POST /evaluate → [HITL pause] → server restart → POST /hitl-respond → complete
+    """
+    (
+        _, _, parallel_dispatch_node, conflict_index_node, route_after_conflict,
+        hitl_node, _, fusion_node, sensitivity_sweep_node, red_team_node, evaluation_logger_node,
+    ) = _import_nodes()
+
+    try:
+        # Re-run agents with the updated digital_twin (hitl_answer already merged by caller)
+        state.update(await parallel_dispatch_node(state))
+        state.update(conflict_index_node(state))
+
+        if route_after_conflict(state) == "hitl":
+            # Another round of conflict (respects max_rounds guard in route_after_conflict)
+            state.update(await hitl_node(state))
+            # Progress already marked hitl_pending inside hitl_node
+            return
+
+        await _run_post_fusion(evaluation_id, state, fusion_node, sensitivity_sweep_node,
+                               red_team_node, evaluation_logger_node)
+
+    except Exception:
+        msg = traceback.format_exc()
+        logger.error(f"[{evaluation_id}] Resume error:\n{msg}")
+        prog.mark_error(evaluation_id, msg)
+
+
+async def _run_post_fusion(
+    evaluation_id: str,
+    state: dict,
+    fusion_node,
+    sensitivity_sweep_node,
+    red_team_node,
+    evaluation_logger_node,
+) -> None:
+    """
+    Shared tail of the pipeline: fusion → sensitivity_sweep → red_team → logger.
+    Used by both the initial run and HITL resume path.
+    """
+    from progress import update_stage
+
+    state.update(fusion_node(state))
+    state.update(sensitivity_sweep_node(state))
+    state.update(await red_team_node(state))
+    state.update(evaluation_logger_node(state))
+
+    # Build result snapshot for GET /decision/{id} (Sprint 3 will persist to SQLite instead)
+    result = {
+        "decision": state.get("decision"),
+        "final_score": state.get("final_score"),
+        "final_confidence": state.get("final_confidence"),
+        "final_score_uncertainty": state.get("final_score_uncertainty"),
+        "agent_scores": state.get("agent_scores", {}),
+        "agent_claims": state.get("agent_claims", {}),
+        "agent_weights": state.get("agent_weights", {}),
+        "agent_confidences": state.get("agent_confidences", {}),
+        "agent_citations": state.get("agent_citations", {}),
+        "conflict_detected": state.get("conflict_detected", False),
+        "variance_history": state.get("variance_history", []),
+        "red_team_flag": state.get("red_team_flag", False),
+        "red_team_severity": state.get("red_team_severity"),
+        "red_team_reasoning": state.get("red_team_reasoning"),
+        "hitl_triggered": bool(state.get("hitl_answer")),
+        "hitl_question": state.get("hitl_question"),
+        "hitl_answer": state.get("hitl_answer"),
+        "version_info": state.get("version_info", {}),
+    }
+    prog.store_result(evaluation_id, result)
+    prog.mark_complete(evaluation_id)
+    logger.info(
+        f"[{evaluation_id}] Evaluation complete. "
+        f"Decision={result['decision']}, Score={result['final_score']}"
+    )
 
 
 # ── POST /evaluate ─────────────────────────────────────────────────────────────
@@ -163,23 +268,16 @@ async def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     Returns immediately with status "queued" — the full LangGraph pipeline
     runs as a background asyncio task. Poll GET /status/{evaluation_id} for
     live per-node and per-agent progress.
-
-    Sprint 1: graph nodes are stubs (NotImplementedError); the task will
-              transition to status "error" once it hits the first stub.
-    Sprint 2: full pipeline executes end-to-end.
     """
     if not request.startup_pitch.strip():
         raise HTTPException(status_code=422, detail="startup_pitch must not be empty.")
 
     evaluation_id = str(uuid.uuid4())
 
-    # Write initial progress row BEFORE launching the task so GET /status
-    # can return data immediately after this response is sent.
+    # Write initial progress row BEFORE launching the task
     prog.create_progress(evaluation_id)
 
-    # asyncio.create_task() schedules the coroutine on the running event loop.
-    # We MUST hold a reference to the task — without it, the GC can collect the
-    # task mid-run (a known asyncio footgun). prog.register_task() stores it.
+    # asyncio.create_task() + register_task() prevents GC collecting the task mid-run
     task = asyncio.create_task(
         _run_evaluation(evaluation_id, request.startup_pitch.strip()),
         name=f"eval-{evaluation_id}",
@@ -205,8 +303,8 @@ async def get_status(evaluation_id: str) -> StatusResponse:
       - status: overall pipeline state
       - current_stage: which node is active right now
       - stages_completed: ordered list of finished nodes
-      - agent_status: per-domain-agent {status, score} — updates as each
-        parallel agent finishes, not as a single batch
+      - agent_status: per-domain-agent {status, score} — updates as each parallel agent finishes
+      - hitl_question: populated when status == "hitl_pending" (show in frontend form)
       - error_message: populated if status == "error"
     """
     row = prog.get_progress(evaluation_id)
@@ -224,7 +322,8 @@ async def get_status(evaluation_id: str) -> StatusResponse:
         current_stage=row["current_stage"],
         stages_completed=row["stages_completed"],
         agent_status=agent_status,
-        error_message=row["error_message"],
+        hitl_question=row.get("hitl_question"),
+        error_message=row.get("error_message"),
         updated_at=row["updated_at"],
     )
 
@@ -235,56 +334,123 @@ async def get_status(evaluation_id: str) -> StatusResponse:
 async def hitl_respond(request: HITLRespondRequest) -> HITLRespondResponse:
     """
     Submit a user's answer to the HITL clarifying question.
-    Resumes the paused LangGraph execution for this evaluation.
 
-    Sprint 1 (stub): Returns acknowledgement.
-    Sprint 2: Loads checkpoint from SQLite, injects answer, resumes graph.
+    F-09 implementation:
+      1. Load full evaluation state from Supabase checkpoint (survives server restart)
+      2. Merge answer into digital_twin via hitl_resume_node
+      3. Delete the Supabase checkpoint (clean up)
+      4. Resume pipeline as a new background task from parallel_dispatch
 
-    Acceptance criterion (SRS F-09): Graph state must survive a server restart
-    between pause (POST /evaluate triggering HITL) and resume (this endpoint).
+    Acceptance criterion (SRS F-09): Graph state must survive a server restart between
+    pause and resume — verified by actually restarting Render service mid-pause and
+    confirming /hitl-respond still finds the Supabase checkpoint.
     """
+    from graph.nodes.hitl import hitl_resume_node
+    from hitl_store import load_hitl_state, delete_hitl_state
+
     if not request.evaluation_id or not request.answer.strip():
         raise HTTPException(status_code=422, detail="evaluation_id and answer are required.")
 
-    logger.info(f"HITL response received for evaluation: {request.evaluation_id}")
+    eval_id = request.evaluation_id
 
-    # TODO (Sprint 2): Load checkpoint from SQLite, merge answer into digital_twin,
-    #                  call graph.ainvoke() to resume. See SRS F-09.
+    # Step 1: Load checkpoint from Supabase (the key F-09 operation)
+    state = await load_hitl_state(eval_id)
+    if state is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No HITL checkpoint found for evaluation {eval_id!r}. "
+                "Either the evaluation hasn't paused for HITL yet, or the Supabase "
+                "checkpoint expired/was never written (check SUPABASE_URL/KEY config)."
+            ),
+        )
+
+    # Step 2: Merge answer into state
+    state.update(hitl_resume_node(state, request.answer.strip()))
+    logger.info(f"[{eval_id}] HITL answer merged. round_count={state.get('round_count', 1)}")
+
+    # Step 3: Delete the checkpoint — re-created if HITL triggers again
+    await delete_hitl_state(eval_id)
+
+    # Step 4: Re-initialize progress store (may have been lost if server restarted)
+    if prog.get_progress(eval_id) is None:
+        prog.create_progress(eval_id)
+        logger.info(f"[{eval_id}] Progress store re-initialized after server restart.")
+
+    # Step 5: Resume pipeline as a new background task
+    resume_task = asyncio.create_task(
+        _resume_evaluation(eval_id, state),
+        name=f"resume-{eval_id}",
+    )
+    prog.register_task(eval_id, resume_task)
 
     return HITLRespondResponse(
-        evaluation_id=request.evaluation_id,
+        evaluation_id=eval_id,
         status="running",
-        message="HITL answer received. Graph resume available in Sprint 2.",
+        message=(
+            f"HITL answer accepted. Pipeline resuming from parallel dispatch. "
+            f"Poll GET /status/{eval_id} for live progress."
+        ),
     )
 
 
-# ── GET /decision/{id} ────────────────────────────────────────────────────────
+# ── GET /decision/{evaluation_id} ────────────────────────────────────────────
 
-@router.get("/decision/{evaluation_id}", tags=["Evaluation"])
-async def get_decision(evaluation_id: str) -> dict:
+@router.get("/decision/{evaluation_id}", response_model=DecisionResponse, tags=["Evaluation"])
+async def get_decision(evaluation_id: str) -> DecisionResponse:
     """
     Retrieve the full decision trace for a completed evaluation.
     Includes all agent scores, weights, confidences, claims, citations,
     conflict index, HITL details, final score, uncertainty band, and Red Team output.
 
-    Sprint 1 (stub): Returns placeholder.
-    Sprint 2/3: Loads DecisionTrace from SQLite by evaluation_id.
+    Sprint 2: Reads from in-memory result store (progress.py store_result).
+    Sprint 3: Will load from SQLite evaluation_traces table (F-17 full persistence).
 
-    Acceptance criterion (SRS F-11): Every figure shown in the UI must be
-    traceable to a value in this response — no UI-invented numbers.
+    Acceptance criterion (SRS F-11): Every figure shown in the UI is traceable
+    to a value in this response — no UI-invented numbers.
     """
-    logger.info(f"Decision requested for: {evaluation_id}")
+    row = prog.get_progress(evaluation_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Evaluation {evaluation_id!r} not found.")
 
-    # TODO (Sprint 2/3): Load DecisionTrace from SQLite. See SRS F-17.
+    if row["status"] != "complete":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Evaluation is not yet complete (status: {row['status']!r}). "
+                   "Poll GET /status/{evaluation_id} and retry when status == 'complete'.",
+        )
 
-    return {
-        "evaluation_id": evaluation_id,
-        "status": "stub",
-        "message": "Decision trace retrieval available in Sprint 2/3.",
-    }
+    result = row.get("result")
+    if result is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Evaluation marked complete but result data is missing. This is a bug.",
+        )
+
+    return DecisionResponse(
+        evaluation_id=evaluation_id,
+        decision=result.get("decision"),
+        final_score=result.get("final_score"),
+        final_confidence=result.get("final_confidence"),
+        final_score_uncertainty=result.get("final_score_uncertainty"),
+        agent_scores=result.get("agent_scores", {}),
+        agent_claims=result.get("agent_claims", {}),
+        agent_weights=result.get("agent_weights", {}),
+        agent_confidences=result.get("agent_confidences", {}),
+        agent_citations=result.get("agent_citations", {}),
+        conflict_detected=result.get("conflict_detected", False),
+        variance_history=result.get("variance_history", []),
+        red_team_flag=result.get("red_team_flag", False),
+        red_team_severity=result.get("red_team_severity"),
+        red_team_reasoning=result.get("red_team_reasoning"),
+        hitl_triggered=result.get("hitl_triggered", False),
+        hitl_question=result.get("hitl_question"),
+        hitl_answer=result.get("hitl_answer"),
+        version_info=result.get("version_info", {}),
+    )
 
 
-# ── GET /replay/{id} ─────────────────────────────────────────────────────────
+# ── GET /replay/{evaluation_id} ───────────────────────────────────────────────
 
 @router.get("/replay/{evaluation_id}", tags=["Reproducibility"])
 async def replay_evaluation(evaluation_id: str) -> dict:
@@ -293,16 +459,22 @@ async def replay_evaluation(evaluation_id: str) -> dict:
 
     Acceptance criterion (SRS F-17): Zero live LLM calls; output identical to original run.
 
-    Sprint 1 (stub): Returns placeholder.
+    Sprint 2: Returns same data as /decision/{id} (from in-memory store).
     Sprint 3: Loads and returns stored DecisionTrace from SQLite.
+    IMPORTANT: No LLM calls may occur in this function — reads stored data only.
     """
-    logger.info(f"Replay requested for: {evaluation_id}",)
+    logger.info(f"Replay requested for: {evaluation_id}")
 
-    # TODO (Sprint 3): Load stored DecisionTrace from SQLite. See SRS F-17.
-    # IMPORTANT: No LLM calls may occur in this function — it reads stored data only.
+    row = prog.get_progress(evaluation_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Evaluation {evaluation_id!r} not found.")
 
-    return {
-        "evaluation_id": evaluation_id,
-        "status": "stub",
-        "message": "Replay endpoint available in Sprint 3.",
-    }
+    result = row.get("result")
+    if not result:
+        raise HTTPException(
+            status_code=409,
+            detail=f"No stored result for {evaluation_id!r} (status: {row['status']!r}). "
+                   "Replay requires a completed evaluation.",
+        )
+
+    return {"evaluation_id": evaluation_id, "replay": True, **result}

@@ -8,7 +8,11 @@ Sprint 1: STUB — node signature defined; logic implemented Sprint 3.
 
 from __future__ import annotations
 
+import logging
+
 from schemas.state import ReviewBoardState
+
+logger = logging.getLogger(__name__)
 
 
 # Requirement: F-14
@@ -43,8 +47,12 @@ def sensitivity_sweep_node(state: ReviewBoardState) -> dict:
     if not state.get("conflict_detected") or not state.get("hitl_triggered_variable"):
         return {"sensitivity_sweep": None}
 
-    # TODO (Sprint 3): Implement sweep over hitl_triggered_variable range. See SRS F-14.
-    raise NotImplementedError(
-        "Sensitivity Sweep Node not yet implemented. "
-        "See SRS F-14. Scheduled for Sprint 3."
+    # Sprint 3: Full sweep math over hitl_triggered_variable range (F-14).
+    # Sprint 2: Return None gracefully so the HITL → resume path doesn't crash.
+    #           The node is still exercised when HITL fires; it just skips computation.
+    logger.warning(
+        f"[{state.get('evaluation_id', '')}] Sensitivity Sweep skipped: "
+        "full sweep math deferred to Sprint 3 (F-14). "
+        "HITL was triggered but sweep range computation not yet implemented."
     )
+    return {"sensitivity_sweep": None}

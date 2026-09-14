@@ -56,6 +56,8 @@ def create_progress(evaluation_id: str) -> None:
         "stages_completed": [],
         "agent_status": _initial_agent_status(),
         "error_message": None,
+        "hitl_question": None,    # Populated when HITL is triggered (for frontend display)
+        "result": None,           # Populated on completion — agent scores, decision, etc.
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -101,12 +103,14 @@ def update_agent_status(
     row["updated_at"] = _now()
 
 
-def mark_hitl_pending(evaluation_id: str) -> None:
-    """Pause state — graph is waiting for user HITL response."""
+def mark_hitl_pending(evaluation_id: str, hitl_question: str = "") -> None:
+    """Pause state — graph is waiting for user HITL response. Stores the question for frontend."""
     row = _PROGRESS.get(evaluation_id)
     if not row:
         return
     row["status"] = "hitl_pending"
+    if hitl_question:
+        row["hitl_question"] = hitl_question
     row["updated_at"] = _now()
 
 
@@ -133,6 +137,19 @@ def mark_error(evaluation_id: str, error_message: str) -> None:
     row["error_message"] = error_message
     row["updated_at"] = _now()
     discard_task(evaluation_id)
+
+
+def store_result(evaluation_id: str, result: dict) -> None:
+    """
+    Store the final evaluation result in the progress row so GET /decision/{id}
+    can return it without SQLite (Sprint 3 will persist to DB instead).
+    Call this BEFORE mark_complete.
+    """
+    row = _PROGRESS.get(evaluation_id)
+    if not row:
+        return
+    row["result"] = result
+    row["updated_at"] = _now()
 
 
 def get_progress(evaluation_id: str) -> Optional[dict]:

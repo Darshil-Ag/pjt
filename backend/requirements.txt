@@ -23,6 +23,9 @@ scikit-learn>=1.4.0    # For Cohen's kappa + ablation metrics
 # Dataset / utilities
 tabulate>=0.9.0        # kappa_check pretty output
 
+# Persistence (HITL checkpoint — F-09)
+supabase>=2.0.0        # Supabase free tier — HITL state persistence across restarts
+
 # Testing
 pytest>=8.2.0
 pytest-asyncio>=0.23.0
