@@ -4,24 +4,24 @@ import { Users, BookOpen, Scale, ShieldAlert } from "lucide-react";
 
 const FEATURES = [
   {
-    icon: <Users size={18} color="var(--text-primary)" />,
+    icon: <Users size={16} color="var(--text-primary)" />,
     title: "Five Specialist Agents",
-    body: "Finance, Legal, Market, Operations, and Technology agents evaluate your pitch independently.",
+    body: "Finance, Legal, Market, Operations, and Technology domain agents evaluate your pitch independently.",
   },
   {
-    icon: <BookOpen size={18} color="var(--text-primary)" />,
+    icon: <BookOpen size={16} color="var(--text-primary)" />,
     title: "Historical Evidence RAG",
     body: "Anchors reasoning against retrieved historical precedent cases from ChromaDB vector index.",
   },
   {
-    icon: <Scale size={18} color="var(--text-primary)" />,
+    icon: <Scale size={16} color="var(--text-primary)" />,
     title: "Deterministic Fusion",
     body: "Combines domain scores mathematically using evidence confidence and relevance weighting.",
   },
   {
-    icon: <ShieldAlert size={18} color="var(--text-primary)" />,
-    title: "Human-in-the-Loop & Red Team",
-    body: "Detects domain conflicts to request founder clarification and stress-tests for fatal blind spots.",
+    icon: <ShieldAlert size={16} color="var(--text-primary)" />,
+    title: "HITL & Red Team",
+    body: "Detects domain conflicts for founder clarification and stress-tests for fatal blind spots.",
   },
 ];
 
@@ -29,36 +29,76 @@ export default function Home() {
   return (
     <>
       <Navbar />
-      <main style={{ padding: "var(--space-12) 0" }}>
+      <main style={{ padding: "var(--space-10) 0 var(--space-16)" }}>
         <div className="container">
-          {/* Header */}
+          {/* Hero Heading */}
           <div style={{ textAlign: "center", marginBottom: "var(--space-8)" }}>
-            <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: "var(--space-2)" }}>
-              AIRB · AI Review Board
-            </div>
-            <h1 style={{ marginBottom: "var(--space-3)" }}>Evaluate Your Startup</h1>
-            <p style={{ color: "var(--text-muted)", fontSize: "1.05rem", maxWidth: 540, margin: "0 auto" }}>
+            <h1 style={{
+              fontSize: "2.5rem",
+              fontWeight: 700,
+              letterSpacing: "-0.03em",
+              color: "var(--text-primary)",
+              marginBottom: "var(--space-2)"
+            }}>
+              Evaluate Your Startup
+            </h1>
+            <p style={{
+              color: "var(--text-muted)",
+              fontSize: "1.08rem",
+              maxWidth: 520,
+              margin: "0 auto",
+              lineHeight: 1.5
+            }}>
               Get an AI-powered multi-domain assessment of your startup idea.
             </p>
           </div>
 
-          {/* Prompt Form */}
-          <div style={{ maxWidth: 760, margin: "0 auto var(--space-16)" }}>
+          {/* Prompt Form Container */}
+          <div style={{ maxWidth: 760, margin: "0 auto var(--space-12)" }}>
             <PitchForm />
           </div>
 
-          {/* Minimal Feature Grid */}
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "var(--space-12)" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-6)" }}>
+          {/* Minimal Feature Cards Grid */}
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "var(--space-10)" }}>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "var(--space-4)"
+            }}>
               {FEATURES.map(f => (
-                <div key={f.title} style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", color: "var(--text-primary)", fontWeight: 600, fontSize: "0.92rem" }}>
+                <div
+                  key={f.title}
+                  className="card card-hover"
+                  style={{
+                    padding: "var(--space-5)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--space-3)",
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-lg)"
+                  }}
+                >
+                  <div style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 8,
+                    background: "var(--bg-elevated)",
+                    border: "1px solid var(--border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}>
                     {f.icon}
-                    {f.title}
                   </div>
-                  <p style={{ fontSize: "0.84rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-                    {f.body}
-                  </p>
+                  <div>
+                    <h4 style={{ fontSize: "0.92rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
+                      {f.title}
+                    </h4>
+                    <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: 1.55, margin: 0 }}>
+                      {f.body}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>

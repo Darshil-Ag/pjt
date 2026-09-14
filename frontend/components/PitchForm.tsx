@@ -43,21 +43,24 @@ export default function PitchForm() {
 
   return (
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-      {/* Input container styled like a clean prompt box */}
+      {/* Input container styled like ChatGPT signature prompt box */}
       <div
         style={{
           border: "1px solid var(--border)",
-          borderRadius: "var(--radius-xl)",
+          borderRadius: "16px",
           background: "var(--bg-surface)",
-          padding: "var(--space-4)",
-          boxShadow: "var(--shadow-md)",
-          transition: "border-color 0.15s ease",
+          padding: "var(--space-5)",
+          boxShadow: "0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.02)",
+          transition: "all 0.2s ease",
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-3)",
         }}
       >
         <textarea
           id="pitch-input"
           className="textarea"
-          rows={6}
+          rows={5}
           placeholder="Describe your startup, business model, market, team, funding, technology, and any known risks..."
           value={pitch}
           onChange={(e) => { setPitch(e.target.value); setError(null); }}
@@ -67,23 +70,46 @@ export default function PitchForm() {
             boxShadow: "none",
             padding: 0,
             fontSize: "0.98rem",
-            lineHeight: 1.6,
-            minHeight: "160px",
+            lineHeight: 1.65,
+            minHeight: "140px",
             background: "transparent",
+            outline: "none",
           }}
         />
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "var(--space-3)", borderTop: "1px solid var(--bg-elevated)" }}>
-          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingTop: "var(--space-3)",
+          borderTop: "1px solid var(--border)",
+          flexWrap: "wrap",
+          gap: "var(--space-3)"
+        }}>
+          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginRight: 2 }}>
+              Try sample:
+            </span>
             {EXAMPLE_PITCHES.map((ex) => (
               <button
                 key={ex.label}
                 type="button"
-                className="btn btn-ghost btn-sm"
+                className="btn"
                 onClick={() => { setPitch(ex.text); setError(null); }}
-                style={{ fontSize: "0.78rem", padding: "3px 8px" }}
+                style={{
+                  fontSize: "0.78rem",
+                  padding: "4px 10px",
+                  borderRadius: "999px",
+                  background: "var(--bg-elevated)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-secondary)",
+                  fontWeight: 500,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
               >
-                <FileText size={12} />
+                <FileText size={12} color="var(--text-muted)" />
                 {ex.label}
               </button>
             ))}
@@ -94,14 +120,21 @@ export default function PitchForm() {
             type="submit"
             className="btn btn-primary"
             disabled={isLoading || !pitch.trim()}
-            style={{ borderRadius: "var(--radius-md)", padding: "8px 16px" }}
+            style={{
+              borderRadius: "999px",
+              padding: "8px 20px",
+              fontSize: "0.88rem",
+              fontWeight: 600,
+              letterSpacing: "-0.01em",
+              boxShadow: pitch.trim() ? "0 2px 8px rgba(17, 24, 39, 0.15)" : "none",
+            }}
           >
             {isLoading ? (
-              <span className="spinner" style={{ width: 14, height: 14, borderTopColor: "#fff" }} />
+              <><span className="spinner" style={{ width: 14, height: 14, borderTopColor: "#fff" }} /> Evaluating...</>
             ) : (
               <>
                 Evaluate Startup
-                <ArrowUp size={16} />
+                <ArrowUp size={15} />
               </>
             )}
           </button>
