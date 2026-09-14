@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import HITLModal from "@/components/HITLModal";
+import ProgressTracker from "@/components/ProgressTracker";
 import {
   DecisionHero,
   AgentBreakdownTable,
@@ -12,61 +13,81 @@ import {
   VersionInfo,
   SensitivitySweep,
 } from "@/components/Dashboard";
-import { getDecision } from "@/lib/api";
-import type { DecisionTrace } from "@/lib/api";
+import { getDecision, getEvaluationStatus } from "@/lib/api";
+import type { DecisionTrace, ProgressResponse } from "@/lib/api";
 import { RefreshCw, Copy, CheckCircle2 } from "lucide-react";
 
 const SECTION_TABS = ["Overview", "Agents", "Evidence", "Transcript", "Reproducibility"] as const;
 type Tab = (typeof SECTION_TABS)[number];
 
-function StatusBanner({ status }: { status: string }) {
-  if (status === "complete") return null;
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: "var(--space-3)",
-      padding: "var(--space-4) var(--space-6)",
-      background: "rgba(105,65,239,0.10)", border: "1px solid var(--accent-500)",
-      borderRadius: "var(--radius-md)", marginBottom: "var(--space-6)"
-    }}>
-      <span className="spinner" />
-      <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-        {status === "running" ? "Evaluation is running… agents are deliberating." : status}
-      </span>
-    </div>
-  );
-}
+const POLL_INTERVAL_MS = 2000;
 
 export default function DecisionPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+
+  const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [trace, setTrace] = useState<DecisionTrace | null>(null);
-  const [status, setStatus] = useState<string>("running");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadingTrace, setLoadingTrace] = useState(false);
+  const [traceError, setTraceError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
   const [copied, setCopied] = useState(false);
 
-  async function fetchDecision() {
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Fetch decision trace (only once status is "complete") ───────────────────
+  async function fetchTrace() {
+    setLoadingTrace(true);
+    setTraceError(null);
     try {
       const data = await getDecision(id);
       setTrace(data);
-      setStatus(data.decision ? "complete" : "running");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load decision.");
+      setTraceError(err instanceof Error ? err.message : "Failed to load decision trace.");
     } finally {
-      setLoading(false);
+      setLoadingTrace(false);
+    }
+  }
+
+  // ── Poll /status/{id} while evaluation is in-progress ─────────────────────
+  async function pollStatus() {
+    try {
+      const p = await getEvaluationStatus(id);
+      setProgress(p);
+
+      if (p.status === "complete") {
+        stopPolling();
+        await fetchTrace();
+      } else if (p.status === "error") {
+        stopPolling();
+      }
+      // "hitl_pending" keeps polling so we can detect resume
+    } catch (err) {
+      // 404 means the ID was never registered (bad URL); stop polling
+      if (err instanceof Error && err.message.includes("404")) {
+        stopPolling();
+        setTraceError("Evaluation not found. The ID may be invalid or the server restarted.");
+      }
+      // Other errors (network blip) — keep polling silently
+    }
+  }
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
     }
   }
 
   useEffect(() => {
-    fetchDecision();
-    // Poll while running (Sprint 2+: replace with WebSocket/SSE)
-    const interval = setInterval(() => {
-      if (status !== "complete") fetchDecision();
-    }, 4000);
-    return () => clearInterval(interval);
+    // Kick off first poll immediately, then every 2 seconds
+    pollStatus();
+    pollRef.current = setInterval(pollStatus, POLL_INTERVAL_MS);
+    return () => stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // ── Handlers ─────────────────────────────────────────────────────────────────
   function copyId() {
     navigator.clipboard.writeText(id);
     setCopied(true);
@@ -74,11 +95,19 @@ export default function DecisionPage() {
   }
 
   function handleHITLResolved() {
-    setStatus("running");
-    fetchDecision();
+    // Resume polling after HITL answer submitted
+    if (!pollRef.current) {
+      pollRef.current = setInterval(pollStatus, POLL_INTERVAL_MS);
+    }
   }
 
-  // ── Render ───────────────────────────────────────────────
+  // ── Derived state ─────────────────────────────────────────────────────────
+  const isTerminal = progress?.status === "complete" || progress?.status === "error";
+  const isHITLPending = progress?.status === "hitl_pending";
+  const showTracker = progress && progress.status !== "complete";
+  const showDashboard = !!trace;
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
       <Navbar />
@@ -99,50 +128,62 @@ export default function DecisionPage() {
               </div>
             </div>
             <div style={{ display: "flex", gap: "var(--space-3)" }}>
-              <button id="refresh-decision" className="btn btn-secondary btn-sm" onClick={() => { setLoading(true); fetchDecision(); }}>
-                <RefreshCw size={14} /> Refresh
-              </button>
+              {isTerminal && (
+                <button
+                  id="refresh-decision"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { setLoadingTrace(true); fetchTrace(); }}
+                >
+                  <RefreshCw size={14} /> Refresh
+                </button>
+              )}
               <button id="new-evaluation" className="btn btn-ghost btn-sm" onClick={() => router.push("/")}>
                 ← New Pitch
               </button>
             </div>
           </div>
 
-          {/* Loading */}
-          {loading && !trace && (
+          {/* Progress tracker — shown while pipeline is running */}
+          {showTracker && progress && (
+            <div className="fade-in" style={{ marginBottom: "var(--space-6)" }}>
+              <ProgressTracker progress={progress} />
+            </div>
+          )}
+
+          {/* HITL Modal */}
+          {isHITLPending && trace?.hitl_question && !trace?.hitl_answer && (
+            <HITLModal
+              evaluationId={id}
+              question={trace.hitl_question}
+              onResolved={handleHITLResolved}
+            />
+          )}
+
+          {/* Trace loading state */}
+          {loadingTrace && !trace && (
             <div style={{ textAlign: "center", padding: "var(--space-16)" }}>
               <div className="spinner" style={{ width: 40, height: 40, margin: "0 auto var(--space-4)" }} />
               <p style={{ color: "var(--text-muted)" }}>Loading decision trace…</p>
             </div>
           )}
 
-          {/* Error */}
-          {error && (
+          {/* Trace error */}
+          {traceError && (
             <div style={{
               padding: "var(--space-6)", borderRadius: "var(--radius-md)",
               background: "rgba(248,81,73,0.10)", border: "1px solid var(--danger)",
               color: "var(--danger)", textAlign: "center"
             }}>
-              {error}
+              {traceError}
             </div>
           )}
 
-          {trace && (
+          {/* Dashboard — shown once trace is loaded */}
+          {showDashboard && (
             <>
-              <StatusBanner status={status} />
-
-              {/* HITL Modal */}
-              {trace.hitl_triggered && !trace.hitl_answer && trace.hitl_question && (
-                <HITLModal
-                  evaluationId={id}
-                  question={trace.hitl_question}
-                  onResolved={handleHITLResolved}
-                />
-              )}
-
-              {/* Decision hero (only when complete) */}
+              {/* Decision hero */}
               {trace.decision && (
-                <div className="card glow-border" style={{ marginBottom: "var(--space-6)" }}>
+                <div className="card glow-border fade-in" style={{ marginBottom: "var(--space-6)" }}>
                   <DecisionHero trace={trace} />
                 </div>
               )}

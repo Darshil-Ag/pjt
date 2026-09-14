@@ -372,7 +372,56 @@ code, kbd, pre { font-family: 'JetBrains Mono', monospace; }
 /* ── Radar chart container ─────────────────────────────────── */
 .radar-container { width: 100%; max-width: 420px; margin: 0 auto; aspect-ratio: 1; }
 
-/* ── Sensitivity sweep ─────────────────────────────────────── */
+/* ── Progress Timeline ─────────────────────────────────────────────────────── */
+.progress-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.progress-step {
+  position: relative;
+  padding: var(--space-3) 0;
+}
+
+/* Vertical connector line between steps */
+.progress-step__connector {
+  position: absolute;
+  left: 7px;          /* center of the 16px icon */
+  top: calc(var(--space-3) + 16px);
+  width: 2px;
+  bottom: 0;
+  background: var(--border);
+  z-index: 0;
+}
+
+/* Active step — connector glows */
+.progress-step--active .progress-step__connector {
+  background: linear-gradient(to bottom, var(--accent-500), var(--border));
+}
+
+/* Complete step — connector is success green */
+.progress-step--complete .progress-step__connector {
+  background: var(--success);
+  opacity: 0.4;
+}
+
+/* Active step label row glows softly */
+.progress-step--active > div:first-of-type {
+  animation: stepGlow 2s ease-in-out infinite;
+}
+
+@keyframes stepGlow {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.75; }
+}
+
+/* ── Agent sub-step ────────────────────────────────────────────────────────── */
+.agent-sub-step {
+  /* Defined inline in ProgressTracker.tsx for colour-per-agent control */
+}
+
+/* ── Sensitivity sweep ─────────────────────────────────────────────────────── */
 .sweep-row {
   display: flex; align-items: center; gap: var(--space-4);
   padding: var(--space-3) var(--space-4);

@@ -42,6 +42,9 @@ async def red_team_node(state: ReviewBoardState) -> dict:
     HARD RULE: Red Team output is NEVER fed back into Wi, Ci, or Si.
                It is an escalation gate only — not a vote.
     """
+    from progress import update_stage
+    update_stage(state.get("evaluation_id", ""), "red_team")
+
     # TODO (Sprint 3): Implement via Groq API. See SRS F-13.
     raise NotImplementedError(
         "Red Team Node not yet implemented. "

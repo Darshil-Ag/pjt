@@ -102,6 +102,23 @@ def embed_query(text: str) -> list[float]:
     return response.embeddings[0].values
 
 
+async def async_embed_query(text: str) -> list[float]:
+    """Embed a single query text asynchronously using Gemini text-embedding-004."""
+    api_key = Config.llm.google_api_key
+    if not api_key or "your_google_api_key_here" in api_key:
+        raise ValueError(
+            "GOOGLE_API_KEY environment variable is not configured or contains placeholder 'your_google_api_key_here'."
+        )
+    client = genai.Client(api_key=api_key)
+    logger.info(f"Calling Gemini API ({Config.rag.embedding_model}) asynchronously for query embedding generation...")
+    response = await client.aio.models.embed_content(
+        model=Config.rag.embedding_model,
+        contents=[text],
+        config=genai_types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"),
+    )
+    return response.embeddings[0].values
+
+
 # ── Index Building ────────────────────────────────────────────────────────────
 
 def build_index(cases_jsonl_path: Optional[str] = None, force_rebuild: bool = False) -> None:
@@ -202,6 +219,39 @@ def retrieve(query_text: str, k: Optional[int] = None) -> list[dict]:
             "similarity_score": round(similarity, 6),
             **results["metadatas"][0][i],
         })
+    return output
+
+
+async def async_retrieve(query_text: str, k: Optional[int] = None) -> list[dict]:
+    """
+    Retrieve top-k most similar grounding cases asynchronously.
+    """
+    k = k or Config.rag.top_k
+    collection = get_collection()
+
+    if collection.count() == 0:
+        logger.warning("ChromaDB collection is empty. Returning empty retrieved cases list.")
+        return []
+
+    query_embedding = await async_embed_query(query_text)
+
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=min(k, collection.count()),
+        include=["documents", "metadatas", "distances"],
+    )
+
+    output = []
+    if results and results.get("ids") and len(results["ids"]) > 0:
+        for i, case_id in enumerate(results["ids"][0]):
+            distance = results["distances"][0][i]
+            similarity = 1.0 - (distance / 2.0)
+            output.append({
+                "case_id": case_id,
+                "raw_text": results["documents"][0][i],
+                "similarity_score": round(similarity, 6),
+                **results["metadatas"][0][i],
+            })
 
     return output
 

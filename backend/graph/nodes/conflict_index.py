@@ -28,6 +28,9 @@ def conflict_index_node(state: ReviewBoardState) -> dict:
     The routing decision (should_go_to_hitl / should_go_to_fusion) is made by
     the conditional edge function below, not inside this node.
     """
+    from progress import update_stage
+    update_stage(state.get("evaluation_id", ""), "conflict_index")
+
     scores = list(state["agent_scores"].values())
     if not scores:
         ci = 0.0

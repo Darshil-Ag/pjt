@@ -11,7 +11,7 @@ export type Decision = "PROCEED" | "HIGH-RISK" | "REVIEW";
 
 export interface EvaluateResponse {
   evaluation_id: string;
-  status: "running" | "hitl_pending" | "complete" | "error";
+  status: "queued" | "running" | "hitl_pending" | "complete" | "error";
   message: string;
 }
 
@@ -57,6 +57,21 @@ export interface DecisionTrace {
   version_info: Record<string, unknown>;
 }
 
+export interface AgentProgressEntry {
+  status: "pending" | "running" | "complete" | "error";
+  score: number | null; // populated once the agent finishes — shown as score preview
+}
+
+export interface ProgressResponse {
+  evaluation_id: string;
+  status: "queued" | "running" | "hitl_pending" | "complete" | "error";
+  current_stage: string | null;
+  stages_completed: string[];
+  agent_status: Record<string, AgentProgressEntry>;
+  error_message: string | null;
+  updated_at: string;
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -92,6 +107,10 @@ export async function respondToHITL(
 
 export async function getDecision(evaluationId: string): Promise<DecisionTrace> {
   return request<DecisionTrace>(`/decision/${evaluationId}`);
+}
+
+export async function getEvaluationStatus(evaluationId: string): Promise<ProgressResponse> {
+  return request<ProgressResponse>(`/status/${evaluationId}`);
 }
 
 export async function replayEvaluation(evaluationId: string): Promise<DecisionTrace> {

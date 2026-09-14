@@ -2,26 +2,35 @@
 AIRB FastAPI Routes (SRS §5 — External Interface Requirements)
 
 Endpoints:
-  POST /evaluate          — Submit a pitch, start evaluation, return evaluation_id
-  POST /hitl-respond      — Submit HITL answer, resume graph execution
-  GET  /decision/{id}     — Get full decision trace for a completed evaluation
-  GET  /replay/{id}       — Return stored trace without re-invoking any LLM (F-17)
+  POST /evaluate               — Submit pitch; returns immediately with status "queued";
+                                 graph runs as background asyncio task
+  GET  /status/{id}            — Poll live pipeline progress (per-node + per-agent)
+  POST /hitl-respond           — Submit HITL answer, resume graph execution
+  GET  /decision/{id}          — Get full decision trace for a completed evaluation
+  GET  /replay/{id}            — Return stored trace without re-invoking any LLM (F-17)
 
-Sprint 1: All routes are stubbed. evaluate() creates an evaluation_id and
-          initializes state; actual graph invocation is Sprint 2.
+Sprint 1:
+  - POST /evaluate: returns "queued" immediately; background task is wired but
+    graph nodes still raise NotImplementedError until Sprint 2, so the task will
+    transition to "error" state. Progress store + /status polling is fully functional.
+  - GET /status/{id}: IMPLEMENTED — returns live progress including per-agent status.
+  - All other routes: stubbed.
 """
 
 from __future__ import annotations
 
-import uuid
+import asyncio
 import logging
-from typing import Optional
+import traceback
+import uuid
+from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from config import Config
 from schemas.state import initial_state
+import progress as prog
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,8 +44,23 @@ class EvaluateRequest(BaseModel):
 
 class EvaluateResponse(BaseModel):
     evaluation_id: str
-    status: str  # "running" | "hitl_pending" | "complete" | "error"
+    status: str  # "queued" | "running" | "hitl_pending" | "complete" | "error"
     message: str
+
+
+class StatusAgentEntry(BaseModel):
+    status: str        # "pending" | "running" | "complete" | "error"
+    score: Optional[float] = None   # set once agent is complete
+
+
+class StatusResponse(BaseModel):
+    evaluation_id: str
+    status: str        # "queued" | "running" | "hitl_pending" | "complete" | "error"
+    current_stage: Optional[str]
+    stages_completed: list[str]
+    agent_status: dict[str, StatusAgentEntry]
+    error_message: Optional[str]
+    updated_at: str
 
 
 class HITLRespondRequest(BaseModel):
@@ -50,6 +74,85 @@ class HITLRespondResponse(BaseModel):
     message: str
 
 
+# ── Background Graph Runner ───────────────────────────────────────────────────
+
+async def _run_evaluation(evaluation_id: str, startup_pitch: str) -> None:
+    """
+    Background coroutine: builds the LangGraph state and invokes the full pipeline.
+    Updates the progress store at every step. Transitions to "error" if any node
+    raises (expected in Sprint 1 since stub nodes raise NotImplementedError).
+
+    Sprint 2: replace the NotImplementedError stubs in each node with real logic;
+              this runner requires no changes — it will automatically work end-to-end.
+    """
+    try:
+        version_info = {
+            "model_worker": Config.llm.worker_model,
+            "model_router": Config.llm.router_model,
+            "prompt_template_version": Config.versioning.prompt_template_version,
+            "rag_index_version": Config.versioning.rag_index_version,
+            "dataset_version": Config.versioning.dataset_version,
+            "weight_calibration_version": Config.versioning.weight_calibration_version,
+            "thresholds": {
+                "theta_conflict": Config.thresholds.theta_conflict,
+                "tau_approve": Config.thresholds.tau_approve,
+                "tau_confidence": Config.thresholds.tau_confidence,
+            },
+        }
+        state = initial_state(startup_pitch, evaluation_id, version_info)
+
+        # Sprint 2: replace with:
+        #   from graph.graph import get_compiled_graph
+        #   from langgraph.checkpoint.sqlite import SqliteSaver
+        #   checkpointer = SqliteSaver(Config.sqlite_db_path)
+        #   graph = get_compiled_graph(checkpointer=checkpointer)
+        #   await graph.ainvoke(state, config={"configurable": {"thread_id": evaluation_id}})
+
+        # Sprint 1: directly call nodes that are implemented; others will raise NotImplementedError.
+        # The progress store transitions to "error" cleanly in that case.
+        from graph.nodes import (
+            context_router_node,
+            retrieval_node,
+            parallel_dispatch_node,
+            conflict_index_node,
+            fusion_node,
+            sensitivity_sweep_node,
+            red_team_node,
+            evaluation_logger_node,
+        )
+
+        # Each await propagates state updates into the progress store via update_stage().
+        state.update(await context_router_node(state))
+        state.update(await retrieval_node(state))
+        state.update(await parallel_dispatch_node(state))
+        state.update(conflict_index_node(state))
+
+        from graph.nodes.conflict_index import route_after_conflict
+        from graph.nodes.hitl import hitl_node
+        if route_after_conflict(state) == "hitl":
+            state.update(await hitl_node(state))
+            prog.mark_hitl_pending(evaluation_id)
+            return  # Paused; resumed via POST /hitl-respond
+
+        state.update(fusion_node(state))
+        state.update(sensitivity_sweep_node(state))
+        state.update(await red_team_node(state))
+        state.update(evaluation_logger_node(state))
+
+        prog.mark_complete(evaluation_id)
+        logger.info(f"Evaluation completed: {evaluation_id}")
+
+    except NotImplementedError as exc:
+        # Expected in Sprint 1 — stub nodes raise this
+        msg = f"Stub node not yet implemented: {exc}"
+        logger.warning(f"[{evaluation_id}] {msg}")
+        prog.mark_error(evaluation_id, msg)
+    except Exception:
+        msg = traceback.format_exc()
+        logger.error(f"[{evaluation_id}] Evaluation error:\n{msg}")
+        prog.mark_error(evaluation_id, msg)
+
+
 # ── POST /evaluate ─────────────────────────────────────────────────────────────
 
 @router.post("/evaluate", response_model=EvaluateResponse, tags=["Evaluation"])
@@ -57,43 +160,72 @@ async def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     """
     Submit a startup pitch for evaluation.
 
-    Sprint 1 (stub): Assigns evaluation_id and initializes state.
-    Sprint 2: Invokes the full LangGraph pipeline asynchronously.
+    Returns immediately with status "queued" — the full LangGraph pipeline
+    runs as a background asyncio task. Poll GET /status/{evaluation_id} for
+    live per-node and per-agent progress.
 
-    Returns:
-        evaluation_id: Unique identifier for this run (use with GET /decision/{id})
-        status: "running" while processing; "hitl_pending" if paused for HITL
+    Sprint 1: graph nodes are stubs (NotImplementedError); the task will
+              transition to status "error" once it hits the first stub.
+    Sprint 2: full pipeline executes end-to-end.
     """
     if not request.startup_pitch.strip():
         raise HTTPException(status_code=422, detail="startup_pitch must not be empty.")
 
     evaluation_id = str(uuid.uuid4())
-    version_info = {
-        "model_worker": Config.llm.worker_model,
-        "model_router": Config.llm.router_model,
-        "prompt_template_version": Config.versioning.prompt_template_version,
-        "rag_index_version": Config.versioning.rag_index_version,
-        "dataset_version": Config.versioning.dataset_version,
-        "weight_calibration_version": Config.versioning.weight_calibration_version,
-        "thresholds": {
-            "theta_conflict": Config.thresholds.theta_conflict,
-            "tau_approve": Config.thresholds.tau_approve,
-            "tau_confidence": Config.thresholds.tau_confidence,
-        },
-    }
 
-    # Initialize state (Sprint 2: pass this to the compiled LangGraph graph)
-    state = initial_state(request.startup_pitch, evaluation_id, version_info)
-    logger.info(f"Evaluation started: {evaluation_id}")
+    # Write initial progress row BEFORE launching the task so GET /status
+    # can return data immediately after this response is sent.
+    prog.create_progress(evaluation_id)
 
-    # TODO (Sprint 2): Invoke compiled graph with state; store thread_id for HITL resume.
-    # graph = get_compiled_graph(checkpointer=SqliteSaver(...))
-    # await graph.ainvoke(state, config={"configurable": {"thread_id": evaluation_id}})
+    # asyncio.create_task() schedules the coroutine on the running event loop.
+    # We MUST hold a reference to the task — without it, the GC can collect the
+    # task mid-run (a known asyncio footgun). prog.register_task() stores it.
+    task = asyncio.create_task(
+        _run_evaluation(evaluation_id, request.startup_pitch.strip()),
+        name=f"eval-{evaluation_id}",
+    )
+    prog.register_task(evaluation_id, task)
 
+    logger.info(f"Evaluation queued: {evaluation_id}")
     return EvaluateResponse(
         evaluation_id=evaluation_id,
-        status="running",
-        message="Evaluation initialized. Full pipeline available in Sprint 2.",
+        status="queued",
+        message="Evaluation queued. Poll GET /status/{evaluation_id} for live progress.",
+    )
+
+
+# ── GET /status/{evaluation_id} ───────────────────────────────────────────────
+
+@router.get("/status/{evaluation_id}", response_model=StatusResponse, tags=["Evaluation"])
+async def get_status(evaluation_id: str) -> StatusResponse:
+    """
+    Return live pipeline progress for an evaluation.
+
+    Response includes:
+      - status: overall pipeline state
+      - current_stage: which node is active right now
+      - stages_completed: ordered list of finished nodes
+      - agent_status: per-domain-agent {status, score} — updates as each
+        parallel agent finishes, not as a single batch
+      - error_message: populated if status == "error"
+    """
+    row = prog.get_progress(evaluation_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Evaluation {evaluation_id!r} not found.")
+
+    agent_status = {
+        domain: StatusAgentEntry(**entry)
+        for domain, entry in row["agent_status"].items()
+    }
+
+    return StatusResponse(
+        evaluation_id=row["evaluation_id"],
+        status=row["status"],
+        current_stage=row["current_stage"],
+        stages_completed=row["stages_completed"],
+        agent_status=agent_status,
+        error_message=row["error_message"],
+        updated_at=row["updated_at"],
     )
 
 
@@ -163,10 +295,8 @@ async def replay_evaluation(evaluation_id: str) -> dict:
 
     Sprint 1 (stub): Returns placeholder.
     Sprint 3: Loads and returns stored DecisionTrace from SQLite.
-    The stored trace includes the full version_info snapshot (model, prompt template,
-    RAG index, dataset, weight-calibration, threshold versions) needed for exact replay.
     """
-    logger.info(f"Replay requested for: {evaluation_id}")
+    logger.info(f"Replay requested for: {evaluation_id}",)
 
     # TODO (Sprint 3): Load stored DecisionTrace from SQLite. See SRS F-17.
     # IMPORTANT: No LLM calls may occur in this function — it reads stored data only.

@@ -42,6 +42,9 @@ def fusion_node(state: ReviewBoardState) -> dict:
         band = sqrt( Σ(Wi*Ci*(Si - Final_Score)^2) / Σ(Wi*Ci) )
         Documented as distinct from ablation bootstrap CIs — never conflate.
     """
+    from progress import update_stage
+    update_stage(state.get("evaluation_id", ""), "fusion")
+
     scores = state["agent_scores"]
     confidences = state["agent_confidences"]
     weights = state["agent_weights"]

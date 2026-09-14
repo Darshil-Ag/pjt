@@ -35,7 +35,11 @@ async def hitl_node(state: ReviewBoardState) -> dict:
     HARD RULE: Graph state must be persisted to the checkpointer DB before returning,
                not held only in server memory (SRS F-09 acceptance criterion).
     """
+    from progress import update_stage, mark_hitl_pending
+    update_stage(state.get("evaluation_id", ""), "hitl")
+
     # TODO (Sprint 2): Implement question generation + checkpoint persistence. See SRS F-09.
+    # Call mark_hitl_pending(state["evaluation_id"]) after setting hitl_pending=True.
     raise NotImplementedError(
         "HITL Node not yet implemented. "
         "See SRS F-09. Scheduled for Sprint 2."

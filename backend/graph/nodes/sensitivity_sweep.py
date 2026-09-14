@@ -36,6 +36,9 @@ def sensitivity_sweep_node(state: ReviewBoardState) -> dict:
     IMPORTANT: Only the one variable changes across sweep iterations.
                This is NOT a full grid search (BRD §4.2 stretch feature).
     """
+    from progress import update_stage
+    update_stage(state.get("evaluation_id", ""), "sensitivity_sweep")
+
     # Skip if no HITL was triggered in this run
     if not state.get("conflict_detected") or not state.get("hitl_triggered_variable"):
         return {"sensitivity_sweep": None}

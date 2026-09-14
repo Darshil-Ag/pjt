@@ -25,6 +25,10 @@ async def parallel_dispatch_node(state: ReviewBoardState) -> dict:
     Writes: state["agent_scores"], state["agent_confidences"],
             state["agent_weights"], state["agent_claims"], state["agent_citations"]
 
+    Per-agent status is written to the progress store as each agent starts and
+    finishes — the frontend can show a checkmark + score preview per agent
+    individually, not waiting for all 5 to complete.
+
     Implementation (Sprint 2):
       1. Load calibrated weight vector from config.calibration.output_path.
       2. asyncio.gather() all 5 domain agent coroutines (one per DOMAINS entry).
@@ -39,7 +43,17 @@ async def parallel_dispatch_node(state: ReviewBoardState) -> dict:
 
     HARD RULE: No LLM call inside Ci or Wi computation. This is the auditability boundary.
     """
+    from progress import update_stage, update_agent_status
+    eval_id = state.get("evaluation_id", "")
+    update_stage(eval_id, "parallel_dispatch")
+
+    # Mark all agents as "running" before dispatch (Sprint 2 will use asyncio.gather)
+    for domain in DOMAINS:
+        update_agent_status(eval_id, domain, "running")
+
     # TODO (Sprint 2): Implement agent calls + confidence/weight math. See SRS F-05/F-06/F-07.
+    # On completion of each agent call, update_agent_status(eval_id, domain, "complete", score=<score>)
+    # On failure after retry, update_agent_status(eval_id, domain, "error")
     raise NotImplementedError(
         "Parallel Dispatch Node not yet implemented. "
         "See SRS F-05, F-06, F-07. Scheduled for Sprint 2."

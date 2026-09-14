@@ -36,6 +36,9 @@ def evaluation_logger_node(state: ReviewBoardState) -> dict:
       - Loads stored DecisionTrace from SQLite.
       - Returns it directly; ZERO live LLM calls are made.
     """
+    from progress import update_stage
+    update_stage(state.get("evaluation_id", ""), "evaluation_logger")
+
     version_info = {
         "model_worker": Config.llm.worker_model,
         "model_router": Config.llm.router_model,
