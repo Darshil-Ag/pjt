@@ -175,7 +175,7 @@ def build_index(cases_jsonl_path: Optional[str] = None, force_rebuild: bool = Fa
         collection = get_collection(client)
 
     # Load grounding-split cases only
-    jsonl_path = cases_jsonl_path or "data/historical_cases.jsonl"
+    jsonl_path = cases_jsonl_path or Config.dataset.raw_data_path
     grounding_cases = load_cases_by_split(SplitLabel.GROUNDING, jsonl_path)
 
     if not grounding_cases:

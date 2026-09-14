@@ -273,9 +273,62 @@ export default function DecisionPage() {
                   <div className="card">
                     <h3 style={{ marginBottom: "var(--space-2)" }}>Retrieved Historical Cases</h3>
                     <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "var(--space-5)" }}>
-                      These are the most similar cases from the grounding corpus used to anchor agent reasoning.
+                      These are the most similar historical precedent cases retrieved from ChromaDB to anchor agent reasoning.
                     </p>
-                    {trace.retrieved_case_ids?.length ? (
+                    {trace.retrieved_cases && trace.retrieved_cases.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+                        {trace.retrieved_cases.map((c, i) => {
+                          const cid = String(c.case_id ?? `case_${i + 1}`);
+                          const outcome = String(c.outcome ?? "unknown").toLowerCase();
+                          const risk = String(c.primary_risk_category ?? "General");
+                          const summary = String(c.root_cause_summary ?? "");
+                          const rawText = String(c.raw_text ?? "");
+                          const similarity = typeof c.similarity_score === "number"
+                            ? (c.similarity_score * 100).toFixed(1) + "%"
+                            : null;
+
+                          return (
+                            <div key={cid} className="card" style={{ padding: "var(--space-4)", background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-2)", flexWrap: "wrap", gap: "var(--space-2)" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                                  <code style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.85rem", color: "var(--accent-300)", fontWeight: 600 }}>
+                                    {cid}
+                                  </code>
+                                  {c.industry && (
+                                    <span style={{ fontSize: "0.75rem", padding: "2px 8px", borderRadius: "999px", background: "var(--bg-base)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                                      {String(c.industry)}
+                                    </span>
+                                  )}
+                                  <span className={`domain-chip ${risk.toLowerCase()}`}>
+                                    {risk} Risk
+                                  </span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                                  {similarity && (
+                                    <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                                      Similarity: <strong style={{ color: "var(--text-secondary)" }}>{similarity}</strong>
+                                    </span>
+                                  )}
+                                  <span className={`badge ${outcome === "success" ? "badge-proceed" : outcome === "failed" ? "badge-highrisk" : "badge-review"}`}>
+                                    {outcome.toUpperCase()}
+                                  </span>
+                                </div>
+                              </div>
+                              {summary && (
+                                <p style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "var(--space-2)" }}>
+                                  {summary}
+                                </p>
+                              )}
+                              {rawText && (
+                                <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
+                                  {rawText}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : trace.retrieved_case_ids?.length ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
                         {trace.retrieved_case_ids.map(cid => (
                           <div key={cid} className="evidence-card">
@@ -284,7 +337,7 @@ export default function DecisionPage() {
                         ))}
                       </div>
                     ) : (
-                      <p style={{ color: "var(--text-muted)", fontSize: "0.88rem" }}>No evidence retrieved yet (requires Sprint 2 RAG integration).</p>
+                      <p style={{ color: "var(--text-muted)", fontSize: "0.88rem" }}>No historical grounding cases retrieved for this evaluation.</p>
                     )}
                   </div>
                 )}

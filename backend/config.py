@@ -12,8 +12,15 @@ import yaml
 from dotenv import load_dotenv
 
 # Load .env from backend root
-_backend_root = Path(__file__).parent
+_backend_root = Path(__file__).parent.resolve()
 load_dotenv(_backend_root / ".env")
+
+
+def _abs_path(rel_path: str) -> str:
+    p = Path(rel_path)
+    if p.is_absolute():
+        return str(p)
+    return str((_backend_root / p).resolve())
 
 
 def _load_yaml() -> dict[str, Any]:
@@ -28,14 +35,14 @@ _cfg = _load_yaml()
 class _DatasetConfig:
     N: int = _cfg["dataset"]["N"]
     split_ratios: dict[str, float] = _cfg["dataset"]["split_ratios"]
-    raw_data_path: str = _cfg["dataset"]["raw_data_path"]
-    split_manifest_path: str = _cfg["dataset"]["split_manifest_path"]
+    raw_data_path: str = _abs_path(_cfg["dataset"]["raw_data_path"])
+    split_manifest_path: str = _abs_path(_cfg["dataset"]["split_manifest_path"])
 
 
 class _RAGConfig:
     top_k: int = _cfg["rag"]["top_k"]
     index_type: str = _cfg["rag"]["index_type"]
-    chroma_persist_dir: str = _cfg["rag"]["chroma_persist_dir"]
+    chroma_persist_dir: str = _abs_path(_cfg["rag"]["chroma_persist_dir"])
     embedding_model: str = _cfg["rag"]["embedding_model"]
 
 
@@ -69,12 +76,12 @@ class _CalibrationConfig:
     temperature_range: list[float] = _cfg["calibration"]["temperature_range"]
     bias_range: list[float] = _cfg["calibration"]["bias_range"]
     random_seed: int = _cfg["calibration"]["random_seed"]
-    output_path: str = _cfg["calibration"]["output_path"]
+    output_path: str = _abs_path(_cfg["calibration"]["output_path"])
 
 
 class _LabelingConfig:
-    raw_input_path: str = _cfg["labeling"]["raw_input_path"]
-    output_path: str = _cfg["labeling"]["output_path"]
+    raw_input_path: str = _abs_path(_cfg["labeling"]["raw_input_path"])
+    output_path: str = _abs_path(_cfg["labeling"]["output_path"])
     kappa_subset_size: int = _cfg["labeling"]["kappa_subset_size"]
     kappa_target: float = _cfg["labeling"]["kappa_target"]
 
@@ -108,4 +115,9 @@ class Config:
     labeling = _LabelingConfig()
     versioning = _VersioningConfig()
     api = _APIConfig()
-    sqlite_db_path: str = os.environ.get("SQLITE_DB_PATH", "data/airb.db")
+    sqlite_db_path: str = (
+        _abs_path(os.environ.get("SQLITE_DB_PATH"))
+        if os.environ.get("SQLITE_DB_PATH")
+        else _abs_path("data/airb.db")
+    )
+

@@ -33,6 +33,7 @@ export interface DecisionTrace {
   evaluation_id: string;
   startup_pitch: string;
   digital_twin: Record<string, unknown>;
+  retrieved_cases?: Array<Record<string, unknown>>;
   retrieved_case_ids: string[];
   agent_scores: Record<string, number>;
   agent_confidences: Record<string, number>;

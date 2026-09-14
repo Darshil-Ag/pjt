@@ -85,6 +85,8 @@ class DecisionResponse(BaseModel):
     final_confidence: Optional[float]
     final_score_uncertainty: Optional[float]
     digital_twin: dict = {}          # Extracted DigitalTwin dict (F-01)
+    retrieved_cases: list[dict] = []  # Extracted retrieved historical cases (F-04)
+    retrieved_case_ids: list[str] = [] # List of retrieved case IDs for UI evidence count
     agent_scores: dict[str, float]
     agent_claims: dict[str, str]
     agent_weights: dict[str, float]
@@ -237,6 +239,10 @@ async def _run_post_fusion(
         "final_confidence": state.get("final_confidence"),
         "final_score_uncertainty": state.get("final_score_uncertainty"),
         "digital_twin": state.get("digital_twin", {}),
+        "retrieved_cases": state.get("retrieved_cases", []),
+        "retrieved_case_ids": [
+            c["case_id"] for c in state.get("retrieved_cases", []) if isinstance(c, dict) and "case_id" in c
+        ],
         "agent_scores": state.get("agent_scores", {}),
         "agent_claims": state.get("agent_claims", {}),
         "agent_weights": state.get("agent_weights", {}),
@@ -436,6 +442,8 @@ async def get_decision(evaluation_id: str) -> DecisionResponse:
         final_confidence=result.get("final_confidence"),
         final_score_uncertainty=result.get("final_score_uncertainty"),
         digital_twin=result.get("digital_twin", {}),
+        retrieved_cases=result.get("retrieved_cases", []),
+        retrieved_case_ids=result.get("retrieved_case_ids", []),
         agent_scores=result.get("agent_scores", {}),
         agent_claims=result.get("agent_claims", {}),
         agent_weights=result.get("agent_weights", {}),

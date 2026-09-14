@@ -182,6 +182,18 @@ class TestComputeWeights:
             assert w >= 0, f"Weight for {d} is negative: {w}"
             assert w <= 1.0, f"Weight for {d} exceeds 1.0: {w}"
 
+    def test_weights_scaling_non_pathological(self):
+        """0-100 domain relevance priors should produce well-behaved, non-pathological weights."""
+        ri = {"Finance": 70, "Legal": 70, "Market": 80, "Operations": 60, "Technology": 85}
+        weights = self.compute_weights(ri)
+        total = sum(weights.values())
+        assert abs(total - 1.0) < 1e-4, f"Weights must sum to 1.0, got {total}"
+        # No single domain should receive > 90% weight for moderate score differences (85 vs 70)
+        max_weight = max(weights.values())
+        assert max_weight < 0.5, f"Max weight should not be pathologically concentrated, got {max_weight}"
+        # Technology (85) > Market (80) > Finance (70) == Legal (70) > Operations (60)
+        assert weights["Technology"] > weights["Market"] > weights["Finance"]
+
 
 # ── parallel_dispatch_node integration test (mocked API) ─────────────────────
 

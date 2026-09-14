@@ -105,6 +105,8 @@ class TestProgressAPI:
             "final_confidence": 0.8,
             "final_score_uncertainty": 5.0,
             "digital_twin": {"industry": "FinTech", "revenue_model": "SaaS"},
+            "retrieved_cases": [{"case_id": "case_004", "industry": "AgriTech"}],
+            "retrieved_case_ids": ["case_004"],
             "agent_scores": {"Finance": 80.0},
             "agent_claims": {"Finance": "Strong"},
             "agent_weights": {"Finance": 1.0},
@@ -129,4 +131,8 @@ class TestProgressAPI:
         data = resp.json()
         assert "digital_twin" in data
         assert data["digital_twin"] == {"industry": "FinTech", "revenue_model": "SaaS"}
+        assert "retrieved_cases" in data
+        assert "retrieved_case_ids" in data
+        assert data["retrieved_case_ids"] == ["case_004"]
+
 

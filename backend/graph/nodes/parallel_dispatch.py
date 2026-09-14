@@ -276,6 +276,8 @@ def _compute_weights(
     )
     domains = list(domain_relevance.keys())
     ri_arr = np.array([domain_relevance[d] for d in domains], dtype=float)
+    if ri_arr.max() > 1.0:
+        ri_arr = ri_arr / 100.0
     logits = (ri_arr + bias) / temperature
     # Numerically stable softmax: subtract max before exp
     logits -= logits.max()
