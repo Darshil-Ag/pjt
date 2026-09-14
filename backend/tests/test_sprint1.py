@@ -270,6 +270,15 @@ class TestSchemas:
         )
         assert twin.budget is None
 
+    def test_digital_twin_coerces_list_and_string_budget(self):
+        """DigitalTwin must coerce list fields (e.g. tech_stack) and parse formatted budgets."""
+        from schemas.digital_twin import DigitalTwin
+        twin = DigitalTwin.model_validate_json(
+            '{"industry": "AgriTech", "tech_stack": ["AI", "soil sensors"], "budget": "$10k"}'
+        )
+        assert twin.tech_stack == "AI, soil sensors"
+        assert twin.budget == 10000.0
+
     def test_review_board_state_has_all_required_fields(self):
         """ReviewBoardState TypedDict must have all fields defined in SRS §6.2."""
         from schemas.state import ReviewBoardState

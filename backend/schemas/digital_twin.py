@@ -9,7 +9,7 @@ Do NOT add or remove fields without a documented schema version bump.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -74,6 +74,53 @@ class DigitalTwin(BaseModel):
     traction: Optional[str] = Field(default=None)  # e.g., "2000 MAU, 15% MoM growth"
 
     model_config = ConfigDict(extra="allow")  # Allow additional fields from router
+
+    @field_validator(
+        "industry",
+        "location",
+        "business_model_summary",
+        "revenue_model",
+        "target_market",
+        "competitive_advantage",
+        "regulatory_environment",
+        "tech_stack",
+        "traction",
+        mode="before",
+    )
+    @classmethod
+    def coerce_to_string(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return ", ".join(str(item) for item in v)
+        if isinstance(v, dict):
+            return ", ".join(f"{k}: {val}" for k, val in v.items())
+        return str(v)
+
+    @field_validator("budget", mode="before")
+    @classmethod
+    def parse_budget(cls, v: Any) -> Optional[float]:
+        if v is None or v == "":
+            return None
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str):
+            s = v.replace("$", "").replace(",", "").strip().lower()
+            if s.endswith("k"):
+                try:
+                    return float(s[:-1]) * 1000.0
+                except ValueError:
+                    pass
+            elif s.endswith("m"):
+                try:
+                    return float(s[:-1]) * 1000000.0
+                except ValueError:
+                    pass
+            try:
+                return float(s)
+            except ValueError:
+                return None
+        return None
 
 
 # ── Historical Case (SRS §6.1) ────────────────────────────────────────────────
