@@ -1,6 +1,6 @@
 """
 AIRB LLM-Assisted Labeling Pipeline (BRD §6)
-Implements the first-pass labeling step using Gemini 2.5 Flash.
+Implements the first-pass labeling step using Gemini 3.6 Flash.
 
 Workflow:
 1. Read raw startup case text (CSV or JSONL with case_id + raw_text).

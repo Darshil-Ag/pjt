@@ -1,7 +1,7 @@
 """
 Node: HITL Pause & Prompt Generator
 Responsibility: Evaluate variance → pause execution & construct structured human question if CI > theta (SRS F-08)
-LLM: Gemini 2.5 Flash — question generation only.
+LLM: Gemini 3.6 Flash — question generation only.
 
 Sprint 1: STUB — node signature defined; question generation implemented Sprint 2.
           Checkpoint persistence mechanism (SQLite via LangGraph) is wired in graph.py.

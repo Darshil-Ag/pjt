@@ -41,7 +41,7 @@ sensitivity_sweep:
 # ── LLM Models ────────────────────────────────────────────────────────────────
 llm:
   worker_model: "llama-3.3-70b-versatile"   # Groq — 5 parallel domain agents
-  router_model: "gemini-2.5-flash"          # Gemini — Context Router + embeddings
+  router_model: "gemini-3.6-flash"          # Gemini — Context Router + embeddings
   red_team_model: "llama-3.3-70b-versatile" # Groq — Red Team (same tier as workers)
 
 # ── Weight Calibration (F-07) ──────────────────────────────────────────────────

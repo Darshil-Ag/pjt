@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Frontend-Next.js%2016-000000?style=flat-square&logo=nextdotjs)](https://nextjs.org/)
 [![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-FF6F00?style=flat-square)](https://github.com/langchain-ai/langgraph)
 [![Groq](https://img.shields.io/badge/LLM-Groq%20Llama%203.3--70B-F50057?style=flat-square)](https://groq.com/)
-[![Google Gemini](https://img.shields.io/badge/LLM-Gemini%202.5%20Flash-4285F4?style=flat-square&logo=google)](https://aistudio.google.com/)
+[![Google Gemini](https://img.shields.io/badge/LLM-Gemini%203.6%20Flash-4285F4?style=flat-square&logo=google)](https://aistudio.google.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.style=flat-square)](LICENSE)
 
 ---
@@ -25,7 +25,7 @@ graph TD
     end
 
     subgraph Pipeline ["LangGraph Execution Pipeline"]
-        Router["1. Context Router (Gemini 2.5 Flash)"]
+        Router["1. Context Router (Gemini 3.6 Flash)"]
         RAG["2. ChromaDB RAG Retrieval (Top-k Historical Precedents)"]
         
         subgraph Agents ["Parallel Multi-Agent Swarm (Groq Llama 3.3-70B)"]

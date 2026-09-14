@@ -1,7 +1,7 @@
 """
 Node: Context Router
 Responsibility: Parse free-text startup pitch → DigitalTwin JSON (SRS F-01)
-LLM: Gemini 2.5 Flash (Google AI Studio free tier)
+LLM: Gemini 3.6 Flash (Google AI Studio free tier)
 """
 
 from __future__ import annotations
