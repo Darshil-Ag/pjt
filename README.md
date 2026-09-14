@@ -44,20 +44,20 @@ graph TD
         Logger["8. Audit Logger & SQLite Checkpointer"]
     end
 
-    UI -->|POST /evaluate| Routes
+    UI -->|"POST /evaluate"| Routes
     Routes --> Router
     Router --> RAG
     RAG --> A1 & A2 & A3 & A4 & A5
     A1 & A2 & A3 & A4 & A5 --> CI
     
-    CI -->|CI > θ_conflict (150.0)| HITL
-    HITL -->|User Answer Submitted| Fusion
-    CI -->|CI ≤ θ_conflict| Fusion
+    CI -->|"CI > theta_conflict (150.0)"| HITL
+    HITL -->|"User Answer Submitted"| Fusion
+    CI -->|"CI <= theta_conflict"| Fusion
     
     Fusion --> RedTeam
     RedTeam --> Sweep
     Sweep --> Logger
-    Logger -->|Return Trace| Routes
+    Logger -->|"Return Trace"| Routes
     Routes --> Dash
 ```
 
@@ -82,10 +82,10 @@ sequenceDiagram
     Graph->>VectorDB: 2. Query top-k historical precedents (Grounding Set)
     VectorDB-->>Graph: Return historical case evidence
     Graph->>LLM: 3. Parallel dispatch to 5 Domain Agents (Groq 70B)
-    LLM-->>Graph: Return Agent Scores (Sᵢ), Confidences (Cᵢ), & Citations
-    Graph->>Graph: 4. Compute Conflict Index (CI = Var(S₁..S₅))
+    LLM-->>Graph: Return Agent Scores (Si), Confidences (Ci), & Citations
+    Graph->>Graph: 4. Compute Conflict Index (CI = Var(S1..S5))
 
-    alt High Divergence (CI > θ_conflict)
+    alt High Divergence (CI > theta_conflict)
         Graph-->>API: Status: hitl_pending
         API-->>UI: Display HITL Clarification Modal
         User->>UI: Submits Clarifying Input
