@@ -401,20 +401,20 @@ class TestParallelDispatchNode:
             from graph.nodes.parallel_dispatch import parallel_dispatch_node
             await parallel_dispatch_node(state)
 
-        # Every domain should have a "running" transition and an "answered" transition
+        # Every domain should have a "running" transition and a "complete" transition
         running_domains = {call[0] for call in status_calls if call[1] == "running"}
-        answered_domains = {call[0] for call in status_calls if call[1] == "answered"}
+        answered_domains = {call[0] for call in status_calls if call[1] == "complete"}
         assert running_domains == {"Finance", "Legal", "Market", "Operations", "Technology"}, \
             f"Not all agents marked running: {running_domains}"
         assert answered_domains == {"Finance", "Legal", "Market", "Operations", "Technology"}, \
-            f"Not all agents marked answered: {answered_domains}. " \
+            f"Not all agents marked complete: {answered_domains}. " \
             f"Status calls: {status_calls}"
 
-        # Scores must be persisted with the "answered" transition (not None)
+        # Scores must be persisted with the "complete" transition (not None)
         for domain, status, score in status_calls:
-            if status == "answered":
-                assert score is not None, f"{domain} marked 'answered' but score is None"
-                assert score > 0, f"{domain} answered with non-positive score {score}"
+            if status == "complete":
+                assert score is not None, f"{domain} marked 'complete' but score is None"
+                assert score > 0, f"{domain} completed with non-positive score {score}"
 
     @pytest.mark.asyncio
     async def test_one_agent_fails_other_four_continue(self):
@@ -472,12 +472,12 @@ class TestParallelDispatchNode:
         assert len(result["agent_scores"]) == 4, "4 agents should succeed"
         assert abs(sum(result["agent_weights"].values()) - 1.0) < 1e-4
 
-        # Verify Legal got "error" status, others got "answered"
+        # Verify Legal got "error" status, others got "complete"
         error_domains = {call[0] for call in status_calls if call[1] == "error"}
-        answered_domains = {call[0] for call in status_calls if call[1] == "answered"}
+        answered_domains = {call[0] for call in status_calls if call[1] == "complete"}
         assert "Legal" in error_domains, "Failed Legal agent must be marked 'error'"
         assert answered_domains == {"Finance", "Market", "Operations", "Technology"}, \
-            f"Surviving agents should be 'answered', got {answered_domains}"
+            f"Surviving agents should be 'complete', got {answered_domains}"
 
     @pytest.mark.asyncio
     async def test_one_agent_fails_gracefully(self):

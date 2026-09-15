@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +21,22 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
+# ── Lifespan (startup / shutdown) ────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Ensure ChromaDB grounding index is populated on startup."""
+    try:
+        from rag.index import get_collection, build_index
+        col = get_collection()
+        if col.count() == 0:
+            logging.info("ChromaDB collection is empty on startup. Building grounding corpus index...")
+            build_index()
+    except Exception as exc:
+        logging.warning(f"Startup index build skipped/failed: {exc}")
+    yield  # Application runs here
+    # Shutdown: nothing to tear down
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="AIRB — Evidence-Calibrated Multi-Agent Decision Fusion Framework",
@@ -28,9 +45,10 @@ app = FastAPI(
         "Every final score is traceable to specific agent contributions, weights, "
         "confidence values, and cited historical evidence."
     ),
-    version="1.0.0-sprint1",
+    version="1.0.0-sprint2",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
@@ -46,25 +64,11 @@ app.add_middleware(
 app.include_router(router, prefix="/api/v1")
 
 
-# ── Startup Event ──────────────────────────────────────────────────────────────
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Ensure ChromaDB grounding index is populated on startup."""
-    try:
-        from rag.index import get_collection, build_index
-        col = get_collection()
-        if col.count() == 0:
-            logging.info("ChromaDB collection is empty on startup. Building grounding corpus index...")
-            build_index()
-    except Exception as exc:
-        logging.warning(f"Startup index build skipped/failed: {exc}")
-
-
 # ── Health Check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["System"])
 async def health() -> dict:
     """System health check."""
-    return {"status": "ok", "version": "1.0.0-sprint1"}
+    return {"status": "ok", "version": "1.0.0-sprint2"}
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

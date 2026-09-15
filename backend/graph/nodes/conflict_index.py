@@ -27,6 +27,10 @@ def conflict_index_node(state: ReviewBoardState) -> dict:
 
     The routing decision (should_go_to_hitl / should_go_to_fusion) is made by
     the conditional edge function below, not inside this node.
+
+    F-16 note: On the post-HITL re-evaluation round (detected by hitl_answer being set
+    in state), this node captures hitl_ci_after = new CI and computes
+    hitl_effectiveness = hitl_ci_before − hitl_ci_after.
     """
     from progress import update_stage
     update_stage(state.get("evaluation_id", ""), "conflict_index")
@@ -40,12 +44,34 @@ def conflict_index_node(state: ReviewBoardState) -> dict:
     variance_history = list(state.get("variance_history", []))
     variance_history.append(ci)
 
-    return {
+    result: dict = {
         "variance_history": variance_history,
         "conflict_detected": ci > Config.thresholds.theta_conflict,
-        # Store for HITL effectiveness logging (F-16)
+        # Preserve or update hitl_ci_before
         "hitl_ci_before": ci if ci > Config.thresholds.theta_conflict else state.get("hitl_ci_before"),
     }
+
+    # ── F-16: HITL Effectiveness ─────────────────────────────────────────────
+    # Detect post-HITL round: hitl_answer has been merged but hitl_ci_after not yet recorded.
+    # Condition: hitl_answer is set (answer was submitted) AND hitl_ci_after not yet captured.
+    hitl_ci_before = state.get("hitl_ci_before")
+    if (
+        state.get("hitl_answer") is not None
+        and hitl_ci_before is not None
+        and state.get("hitl_ci_after") is None
+    ):
+        hitl_ci_after = ci
+        hitl_effectiveness = round(hitl_ci_before - hitl_ci_after, 4)
+        result["hitl_ci_after"] = hitl_ci_after
+        result["hitl_effectiveness"] = hitl_effectiveness
+        import logging as _log
+        _log.getLogger(__name__).info(
+            f"[{state.get('evaluation_id', '')}] F-16 HITL Effectiveness: "
+            f"CI_before={hitl_ci_before:.2f}, CI_after={hitl_ci_after:.2f}, "
+            f"effectiveness={hitl_effectiveness:.4f}"
+        )
+
+    return result
 
 
 def route_after_conflict(state: ReviewBoardState) -> str:

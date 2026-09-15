@@ -16,6 +16,8 @@ import {
 import { getDecision, getEvaluationStatus } from "@/lib/api";
 import type { DecisionTrace, ProgressResponse } from "@/lib/api";
 import { RefreshCw, Copy, CheckCircle2 } from "lucide-react";
+import ReportGenerator from "@/components/ReportGenerator";
+
 
 const SECTION_TABS = ["Overview", "Agents", "Evidence", "Transcript", "Reproducibility"] as const;
 type Tab = (typeof SECTION_TABS)[number];
@@ -128,6 +130,9 @@ export default function DecisionPage() {
               </div>
             </div>
             <div style={{ display: "flex", gap: "var(--space-3)" }}>
+              {isTerminal && trace && (
+                <ReportGenerator trace={trace} />
+              )}
               {isTerminal && (
                 <button
                   id="refresh-decision"

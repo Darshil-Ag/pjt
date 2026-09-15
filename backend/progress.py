@@ -88,8 +88,8 @@ def update_agent_status(
 ) -> None:
     """
     Update a single domain agent's status and optionally its score.
-    status ∈ "pending" | "running" | "answered" | "error"
-    score  — set when status="answered", None otherwise.
+    status ∈ "pending" | "running" | "complete" | "error"
+    score  — set when status="complete", None otherwise.
 
     Each transition is persisted immediately with its own updated_at timestamp.
     This lets the frontend show a per-agent score preview as soon as each agent

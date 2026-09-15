@@ -234,6 +234,8 @@ async def _run_post_fusion(
 
     # Build result snapshot for GET /decision/{id} (Sprint 3 will persist to SQLite instead)
     result = {
+        "evaluation_id": evaluation_id,
+        "startup_pitch": state.get("startup_pitch", ""),
         "decision": state.get("decision"),
         "final_score": state.get("final_score"),
         "final_confidence": state.get("final_confidence"),
@@ -249,13 +251,18 @@ async def _run_post_fusion(
         "agent_confidences": state.get("agent_confidences", {}),
         "agent_citations": state.get("agent_citations", {}),
         "conflict_detected": state.get("conflict_detected", False),
+        "conflict_index": state.get("conflict_index"),
         "variance_history": state.get("variance_history", []),
         "red_team_flag": state.get("red_team_flag", False),
         "red_team_severity": state.get("red_team_severity"),
         "red_team_reasoning": state.get("red_team_reasoning"),
-        "hitl_triggered": bool(state.get("hitl_answer")),
+        "hitl_triggered": bool(state.get("hitl_question")),
         "hitl_question": state.get("hitl_question"),
         "hitl_answer": state.get("hitl_answer"),
+        "hitl_ci_before": state.get("hitl_ci_before"),
+        "hitl_ci_after": state.get("hitl_ci_after"),
+        "hitl_effectiveness": state.get("hitl_effectiveness"),
+        "sensitivity_sweep": state.get("sensitivity_sweep"),
         "version_info": state.get("version_info", {}),
     }
     prog.store_result(evaluation_id, result)

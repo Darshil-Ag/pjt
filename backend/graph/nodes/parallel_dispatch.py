@@ -155,14 +155,20 @@ async def _single_agent_call(
                 model=Config.llm.worker_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=300,
+                max_tokens=1024,  # Reasoning models need extra headroom: ~200 reasoning + ~100 output tokens
             )
-            raw = resp.choices[0].message.content.strip()
+            raw = (resp.choices[0].message.content or "").strip()
             # Strip markdown code fences if model wraps output
             if "```" in raw:
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:].strip()
+            # Guard: reasoning models may return empty content if max_tokens was hit mid-think
+            if not raw:
+                raise ValueError(
+                    "Model returned empty content — reasoning tokens may have exhausted the budget. "
+                    "Check max_tokens."
+                )
             parsed = json.loads(raw)
 
             # Validate required fields
@@ -172,8 +178,8 @@ async def _single_agent_call(
             claim = str(parsed["claim"])
             cited = [str(c) for c in parsed.get("cited_case_ids", [])]
 
-            # Persist "answered" + score immediately — independent of other agents
-            update_agent_status(eval_id, domain, "answered", score=score)
+            # Persist "complete" + score immediately — independent of other agents
+            update_agent_status(eval_id, domain, "complete", score=score)
             logger.info(f"[{eval_id}] {domain} agent: score={score:.0f}, cited={cited}")
             return {"score": score, "claim": claim, "cited_case_ids": cited}
 

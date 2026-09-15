@@ -85,6 +85,12 @@ async def red_team_node(state: ReviewBoardState) -> dict:
         claims_json=json.dumps(claims, indent=2, default=str),
     )
 
+    # Brief courtesy pause: 5 agent calls just completed concurrently and likely saturated
+    # the Groq free-tier rate-limit window. Waiting 2 s avoids the near-certain 429
+    # that the Red Team call would otherwise hit (saving ~3 s of retry-backoff latency).
+    import asyncio
+    await asyncio.sleep(2)
+
     last_exc = None
     for attempt in range(2):  # One retry on malformed JSON (consistent with F-05 pattern)
         try:
@@ -92,7 +98,7 @@ async def red_team_node(state: ReviewBoardState) -> dict:
                 model=Config.llm.red_team_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
-                max_tokens=400,
+                max_tokens=1024,  # Reasoning models need extra headroom: ~200 reasoning + ~200 output tokens
             )
             raw = resp.choices[0].message.content.strip()
             if "```" in raw:
