@@ -165,11 +165,11 @@ async def _run_evaluation(evaluation_id: str, startup_pitch: str) -> None:
         state.update(await parallel_dispatch_node(state))
         state.update(conflict_index_node(state))
 
-        if route_after_conflict(state) == "hitl":
-            # HITL path: hitl_node persists state to Supabase before returning
-            state.update(await hitl_node(state))
-            # Progress store already updated to hitl_pending inside hitl_node
-            return  # Suspended — resumed via POST /hitl-respond
+        # if route_after_conflict(state) == "hitl":
+        #     # HITL path: hitl_node persists state to Supabase before returning
+        #     state.update(await hitl_node(state))
+        #     # Progress store already updated to hitl_pending inside hitl_node
+        #     return  # Suspended — resumed via POST /hitl-respond
 
         await _run_post_fusion(evaluation_id, state, fusion_node, sensitivity_sweep_node,
                                red_team_node, evaluation_logger_node)

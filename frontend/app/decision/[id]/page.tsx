@@ -117,11 +117,24 @@ export default function DecisionPage() {
         <div className="container" style={{ padding: "var(--space-8) var(--space-6)" }}>
 
           {/* Header row */}
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "var(--space-6)", gap: "var(--space-4)", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "var(--space-8)", gap: "var(--space-4)", flexWrap: "wrap" }}>
             <div>
-              <h1 style={{ fontSize: "1.6rem", marginBottom: "var(--space-1)" }}>Decision Report</h1>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
+                <button className="btn btn-ghost btn-sm" style={{ padding: "2px 8px", fontSize: "0.78rem" }} onClick={() => router.push("/")}>
+                  ← Home
+                </button>
+                <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>/</span>
+                <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Decision Report</span>
+              </div>
+              <h1 style={{
+                fontSize: "clamp(1.5rem, 3vw, 2rem)",
+                marginBottom: "var(--space-2)",
+                background: "linear-gradient(135deg, var(--text-primary), var(--text-secondary))",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}>AIRB Decision Report</h1>
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                <code style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                <code style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.72rem", color: "var(--text-muted)", letterSpacing: "0.02em" }}>
                   {id}
                 </code>
                 <button id="copy-eval-id" className="btn-ghost btn" style={{ padding: "2px 6px" }} onClick={copyId}>
@@ -129,7 +142,7 @@ export default function DecisionPage() {
                 </button>
               </div>
             </div>
-            <div style={{ display: "flex", gap: "var(--space-3)" }}>
+            <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap", alignItems: "center" }}>
               {isTerminal && trace && (
                 <ReportGenerator trace={trace} />
               )}
@@ -142,8 +155,8 @@ export default function DecisionPage() {
                   <RefreshCw size={14} /> Refresh
                 </button>
               )}
-              <button id="new-evaluation" className="btn btn-ghost btn-sm" onClick={() => router.push("/")}>
-                ← New Pitch
+              <button id="new-evaluation" className="btn btn-primary btn-sm" onClick={() => router.push("/")}>
+                + New Pitch
               </button>
             </div>
           </div>
@@ -170,20 +183,34 @@ export default function DecisionPage() {
 
           {/* Trace loading state */}
           {loadingTrace && !trace && (
-            <div style={{ textAlign: "center", padding: "var(--space-16)" }}>
-              <div className="spinner" style={{ width: 40, height: 40, margin: "0 auto var(--space-4)" }} />
-              <p style={{ color: "var(--text-muted)" }}>Loading decision trace…</p>
+            <div style={{ textAlign: "center", padding: "var(--space-20)" }}>
+              <div style={{ position: "relative", display: "inline-block", marginBottom: "var(--space-6)" }}>
+                <div className="spinner" style={{ width: 48, height: 48 }} />
+                <div style={{
+                  position: "absolute", inset: 0, display: "flex",
+                  alignItems: "center", justifyContent: "center",
+                  fontSize: "1.2rem",
+                }}>⚖️</div>
+              </div>
+              <h3 style={{ marginBottom: "var(--space-2)", background: "linear-gradient(135deg, var(--text-primary), var(--text-secondary))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Loading Decision Trace</h3>
+              <p style={{ color: "var(--text-muted)", fontSize: "0.88rem" }}>Fetching evaluation results from the backend…</p>
             </div>
           )}
 
           {/* Trace error */}
           {traceError && (
             <div style={{
-              padding: "var(--space-6)", borderRadius: "var(--radius-md)",
-              background: "rgba(248,81,73,0.10)", border: "1px solid var(--danger)",
-              color: "var(--danger)", textAlign: "center"
+              padding: "var(--space-8)", borderRadius: "var(--radius-lg)",
+              background: "rgba(239, 68, 68, 0.06)",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
+              color: "var(--danger)", textAlign: "center",
+              boxShadow: "0 0 24px var(--danger-glow)",
             }}>
-              {traceError}
+              <p style={{ fontWeight: 600, marginBottom: "var(--space-2)" }}>Evaluation Not Found</p>
+              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{traceError}</p>
+              <button className="btn btn-primary btn-sm" style={{ marginTop: "var(--space-4)" }} onClick={() => router.push("/")}>
+                Start New Pitch
+              </button>
             </div>
           )}
 
@@ -198,7 +225,12 @@ export default function DecisionPage() {
               )}
 
               {/* Tabs */}
-              <div style={{ display: "flex", gap: "var(--space-1)", borderBottom: "1px solid var(--border)", marginBottom: "var(--space-6)" }}>
+              <div style={{
+                display: "flex", gap: "var(--space-1)",
+                borderBottom: "1px solid var(--border-subtle)",
+                marginBottom: "var(--space-6)",
+                overflowX: "auto",
+              }}>
                 {SECTION_TABS.map(tab => (
                   <button
                     key={tab}
@@ -207,9 +239,14 @@ export default function DecisionPage() {
                     onClick={() => setActiveTab(tab)}
                     style={{
                       borderBottom: activeTab === tab ? "2px solid var(--accent-400)" : "2px solid transparent",
-                      borderRadius: 0, color: activeTab === tab ? "var(--accent-400)" : "var(--text-muted)",
-                      fontWeight: activeTab === tab ? 600 : 400,
-                      paddingBottom: "var(--space-3)"
+                      borderRadius: 0,
+                      color: activeTab === tab ? "var(--accent-300)" : "var(--text-muted)",
+                      fontWeight: activeTab === tab ? 700 : 400,
+                      paddingBottom: "var(--space-3)",
+                      fontSize: "0.85rem",
+                      letterSpacing: activeTab === tab ? "0.01em" : 0,
+                      transition: "color var(--t-fast), border-color var(--t-fast)",
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {tab}
