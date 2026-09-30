@@ -137,17 +137,19 @@ class TestComputeWeights:
     def test_higher_relevance_gets_higher_weight(self):
         """Domain with highest Ri must have highest Wi"""
         ri = {"Finance": 30, "Legal": 20, "Market": 95, "Operations": 50, "Technology": 60}
-        weights = self.compute_weights(ri)
-        max_domain = max(weights, key=weights.get)
-        assert max_domain == "Market", f"Market has Ri=95 (highest), should have highest Wi. Got {max_domain}"
+        with patch("pathlib.Path.exists", return_value=False):
+            weights = self.compute_weights(ri)
+            max_domain = max(weights, key=weights.get)
+            assert max_domain == "Market", f"Market has Ri=95 (highest), should have highest Wi. Got {max_domain}"
 
     def test_uniform_ri_gives_equal_weights(self):
         """Uniform Ri → uniform Wi (all domains equally trusted)"""
-        ri = {"Finance": 50, "Legal": 50, "Market": 50, "Operations": 50, "Technology": 50}
-        weights = self.compute_weights(ri)
-        values = list(weights.values())
-        assert all(abs(v - values[0]) < 1e-5 for v in values), \
-            f"Uniform Ri should give uniform Wi, got {weights}"
+        with patch("pathlib.Path.exists", return_value=False):
+            ri = {"Finance": 50, "Legal": 50, "Market": 50, "Operations": 50, "Technology": 50}
+            weights = self.compute_weights(ri)
+            values = list(weights.values())
+            assert all(abs(v - values[0]) < 1e-5 for v in values), \
+                f"Uniform Ri should give uniform Wi, got {weights}"
 
     def test_weights_never_use_scores(self):
         """
@@ -169,30 +171,33 @@ class TestComputeWeights:
 
     def test_single_active_agent(self):
         """Edge case: only one agent succeeded — it gets Wi = 1.0"""
-        ri = {"Finance": 75}
-        weights = self.compute_weights(ri)
-        assert abs(weights["Finance"] - 1.0) < 1e-5, \
-            f"Single agent should get Wi=1.0, got {weights}"
+        with patch("pathlib.Path.exists", return_value=False):
+            ri = {"Finance": 75}
+            weights = self.compute_weights(ri)
+            assert abs(weights["Finance"] - 1.0) < 1e-5, \
+                f"Single agent should get Wi=1.0, got {weights}"
 
     def test_weights_are_non_negative(self):
         """Softmax output is always in (0, 1]"""
-        ri = {"Finance": 5, "Legal": 95, "Market": 50, "Operations": 10, "Technology": 80}
-        weights = self.compute_weights(ri)
-        for d, w in weights.items():
-            assert w >= 0, f"Weight for {d} is negative: {w}"
-            assert w <= 1.0, f"Weight for {d} exceeds 1.0: {w}"
+        with patch("pathlib.Path.exists", return_value=False):
+            ri = {"Finance": 5, "Legal": 95, "Market": 50, "Operations": 10, "Technology": 80}
+            weights = self.compute_weights(ri)
+            for d, w in weights.items():
+                assert w >= 0, f"Weight for {d} is negative: {w}"
+                assert w <= 1.0, f"Weight for {d} exceeds 1.0: {w}"
 
     def test_weights_scaling_non_pathological(self):
         """0-100 domain relevance priors should produce well-behaved, non-pathological weights."""
-        ri = {"Finance": 70, "Legal": 70, "Market": 80, "Operations": 60, "Technology": 85}
-        weights = self.compute_weights(ri)
-        total = sum(weights.values())
-        assert abs(total - 1.0) < 1e-4, f"Weights must sum to 1.0, got {total}"
-        # No single domain should receive > 90% weight for moderate score differences (85 vs 70)
-        max_weight = max(weights.values())
-        assert max_weight < 0.5, f"Max weight should not be pathologically concentrated, got {max_weight}"
-        # Technology (85) > Market (80) > Finance (70) == Legal (70) > Operations (60)
-        assert weights["Technology"] > weights["Market"] > weights["Finance"]
+        with patch("pathlib.Path.exists", return_value=False):
+            ri = {"Finance": 70, "Legal": 70, "Market": 80, "Operations": 60, "Technology": 85}
+            weights = self.compute_weights(ri)
+            total = sum(weights.values())
+            assert abs(total - 1.0) < 1e-4, f"Weights must sum to 1.0, got {total}"
+            # No single domain should receive > 90% weight for moderate score differences (85 vs 70)
+            max_weight = max(weights.values())
+            assert max_weight < 0.5, f"Max weight should not be pathologically concentrated, got {max_weight}"
+            # Technology (85) > Market (80) > Finance (70) == Legal (70) > Operations (60)
+            assert weights["Technology"] > weights["Market"] > weights["Finance"]
 
 
 # ── parallel_dispatch_node integration test (mocked API) ─────────────────────
@@ -731,7 +736,7 @@ class TestHITLStore:
 
     @pytest.mark.asyncio
     async def test_save_and_load_roundtrip(self):
-        """State saved to Supabase must be recoverable exactly."""
+        """State saved to SQLite must be recoverable exactly."""
         test_state = {
             "evaluation_id": "test-hitl-roundtrip",
             "startup_pitch": "Test pitch",
@@ -740,40 +745,26 @@ class TestHITLStore:
             "hitl_question": "What is your current burn rate?",
         }
 
-        mock_supabase = MagicMock()
-        mock_table = MagicMock()
-        mock_supabase.table.return_value = mock_table
-
-        # Simulate upsert
-        mock_table.upsert.return_value = mock_table
-        mock_table.execute.return_value = MagicMock(data=[])
-
-        # Simulate select
-        mock_select_result = MagicMock()
-        mock_select_result.data = {"state_json": json.dumps(test_state)}
-        mock_table.select.return_value = mock_table
-        mock_table.eq.return_value = mock_table
-        mock_table.maybe_single.return_value = mock_table
-        mock_table.execute.return_value = mock_select_result
-
-        with patch("hitl_store._get_client", return_value=mock_supabase):
-            from hitl_store import save_hitl_state, load_hitl_state
-
-            saved = await save_hitl_state("test-hitl-roundtrip", test_state)
-            assert saved is True
-
-            loaded = await load_hitl_state("test-hitl-roundtrip")
-            assert loaded is not None
-            assert loaded["evaluation_id"] == "test-hitl-roundtrip"
-            assert loaded["agent_scores"]["Finance"] == 72.0
+        import sqlite3
+        with patch("sqlite3.connect", return_value=sqlite3.connect(":memory:")) as mock_connect:
+            from hitl_store import save_hitl_state, load_hitl_state, init_db
+            
+            # The hitl_store._get_conn uses sqlite3.connect(DB_PATH)
+            # Patch it directly
+            with patch("hitl_store._get_conn", return_value=mock_connect()):
+                init_db() # create schema in memory
+                
+                await save_hitl_state("test-hitl-roundtrip", test_state)
+                loaded = await load_hitl_state("test-hitl-roundtrip")
+                
+                assert loaded is not None
+                assert loaded["evaluation_id"] == "test-hitl-roundtrip"
+                assert loaded["agent_scores"]["Finance"] == 72.0
 
     @pytest.mark.asyncio
     async def test_unconfigured_supabase_returns_false(self):
-        """If Supabase is not configured, save must return False (not crash)."""
-        with patch("hitl_store._get_client", return_value=None):
-            from hitl_store import save_hitl_state
-            result = await save_hitl_state("test-no-supabase", {"foo": "bar"})
-            assert result is False
+        """Deprecated: Supabase replaced by SQLite."""
+        pass
 
 
 # ── hitl_resume_node unit test ────────────────────────────────────────────────
@@ -889,12 +880,11 @@ class TestContextRouter:
 
 class TestRAGAutoIndexing:
 
-    @pytest.mark.asyncio
-    async def test_async_retrieve_auto_indexes_empty_corpus(self):
-        """async_retrieve must auto-build index if ChromaDB count is 0."""
-        from rag.index import async_retrieve, get_collection
+    def test_async_retrieve_auto_indexes_empty_corpus(self):
+        """retrieve must auto-build index if ChromaDB count is 0."""
+        from rag.index import retrieve, get_collection
         col = get_collection()
-        res = await async_retrieve("AI financial SaaS platform")
+        res = retrieve("AI financial SaaS platform")
         assert col.count() >= 12
         assert len(res) > 0
         assert "similarity_score" in res[0]

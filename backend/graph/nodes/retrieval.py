@@ -1,7 +1,7 @@
 """
 Node: Retrieval
 Responsibility: Embed digital twin → query vector index → return top-k similar cases (SRS F-04)
-LLM: Gemini text-embedding-004 (Google AI Studio free tier)
+LLM: Default Local ChromaDB Embedding (all-MiniLM-L6-v2)
 Vector store: ChromaDB (local, grounding corpus only)
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from config import Config
-from rag.index import async_retrieve
+from rag.index import retrieve
 from schemas.state import ReviewBoardState
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ async def retrieval_node(state: ReviewBoardState) -> dict:
         or state.get("startup_pitch", "")
     )
 
-    logger.info(f"[{eval_id}] Executing async retrieval node for query text...")
-    retrieved_cases = await async_retrieve(query_text, k=Config.rag.top_k)
+    logger.info(f"[{eval_id}] Executing retrieval node for query text...")
+    # Using local embeddings means this is fast enough to run synchronously 
+    retrieved_cases = retrieve(query_text, k=Config.rag.top_k)
     return {"retrieved_cases": retrieved_cases}
-

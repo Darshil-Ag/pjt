@@ -106,6 +106,67 @@ async def context_router_node(state: ReviewBoardState) -> dict:
         logger.info(f"[{eval_id}] Context router extracted digital twin: {dt.model_dump()}")
         return {"digital_twin": dt.model_dump()}
     except Exception as exc:
-        logger.error(f"[{eval_id}] Context Router Gemini call failed: {exc}")
-        raise
+        logger.warning(
+            f"[{eval_id}] Context Router Gemini call failed ({exc}). "
+            "Falling back to Groq (llama-3.3-70b) for digital twin extraction..."
+        )
+        return await _context_router_groq_fallback(pitch, eval_id)
 
+
+async def _context_router_groq_fallback(pitch: str, eval_id: str) -> dict:
+    """
+    Fallback Context Router using Groq when Gemini is unavailable (503, quota, etc.).
+    Extracts the same DigitalTwin fields via JSON-mode prompt to llama-3.3-70b-versatile.
+    """
+    import json
+    from groq import AsyncGroq
+
+    groq_prompt = (
+        "You are an AI that extracts structured startup information from a pitch text.\n"
+        "Return ONLY valid JSON matching this schema (use null for missing fields):\n"
+        '{"industry": str|null, "location": str|null, "budget": float|null, '
+        '"business_model_summary": str|null, "team_size": int|null, '
+        '"revenue_model": str|null, "target_market": str|null, '
+        '"competitive_advantage": str|null, "regulatory_environment": str|null, '
+        '"tech_stack": str|null, "traction": str|null}\n\n'
+        f"PITCH:\n{pitch}\n\n"
+        "Return ONLY the JSON object, no markdown, no explanation."
+    )
+
+    try:
+        client = AsyncGroq(api_key=Config.llm.groq_api_key)
+        response = await client.chat.completions.create(
+            model=Config.llm.worker_model,
+            messages=[{"role": "user", "content": groq_prompt}],
+            temperature=0.1,
+            max_tokens=512,
+        )
+        raw = response.choices[0].message.content.strip()
+        if "```" in raw:
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:].strip()
+        data = json.loads(raw)
+        dt = DigitalTwin.model_validate(data)
+        logger.info(f"[{eval_id}] Groq fallback context router succeeded: {dt.model_dump()}")
+        return {"digital_twin": dt.model_dump()}
+    except Exception as fallback_exc:
+        logger.error(
+            f"[{eval_id}] Groq fallback also failed ({fallback_exc}). "
+            "Using minimal digital twin with raw pitch as business_model_summary."
+        )
+        # Last-resort: return a minimal twin so the pipeline can still run
+        dt = DigitalTwin.model_validate({
+            "industry": None,
+            "location": None,
+            "budget": None,
+            "business_model_summary": pitch[:500],
+            "team_size": None,
+            "revenue_model": None,
+            "target_market": None,
+            "competitive_advantage": None,
+            "regulatory_environment": None,
+            "tech_stack": None,
+            "traction": None,
+        })
+        return {"digital_twin": dt.model_dump()}

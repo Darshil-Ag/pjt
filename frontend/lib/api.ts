@@ -24,9 +24,16 @@ export interface AgentBreakdown {
 }
 
 export interface SweepPoint {
-  variable_value: number | string;
+  delta_pct: number;   // e.g. -20, -10, 0, +10, +20
+  weight: number;
   final_score: number;
   decision: Decision;
+}
+
+export interface SweepResult {
+  baseline: { final_score: number; final_confidence: number; decision: Decision };
+  by_domain: Record<string, SweepPoint[]>;
+  decision_flips: string[];
 }
 
 export interface DecisionTrace {
@@ -51,7 +58,15 @@ export interface DecisionTrace {
   final_confidence: number;
   final_score_uncertainty: number;
   decision: Decision;
-  sensitivity_sweep?: SweepPoint[];
+  sensitivity_sweep?: SweepResult;
+  variance_history?: number[];
+  market_intel?: {
+    funding_signals: string[];
+    competitor_signals: string[];
+    market_signals: string[];
+    source: "serpapi" | "duckduckgo" | "none";
+  };
+  extra_agents_triggered?: string[];
   red_team_flag: boolean;
   red_team_severity?: "low" | "medium" | "high";
   red_team_reasoning?: string;

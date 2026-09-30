@@ -429,46 +429,121 @@ export function VersionInfo({ trace }: { trace: DecisionTrace }) {
   );
 }
 
-// ── Sensitivity Sweep Table ───────────────────────────────────
+// ── Market Intelligence Card (Scope A) ────────────────────────
 
-export function SensitivitySweep({ trace }: { trace: DecisionTrace }) {
-  if (!trace.sensitivity_sweep?.length) return null;
-  const originalDecision = trace.decision;
+export function MarketIntelCard({ trace }: { trace: DecisionTrace }) {
+  const intel = (trace as any).market_intel;
+  if (!intel || intel.source === "none") return null;
+
+  const sections: Array<{ label: string; key: "funding_signals" | "competitor_signals" | "market_signals"; color: string }> = [
+    { label: "💰 Funding Activity", key: "funding_signals", color: "var(--success)" },
+    { label: "🏢 Competitive Landscape", key: "competitor_signals", color: "var(--accent-400)" },
+    { label: "📈 Market Signals", key: "market_signals", color: "var(--warning)" },
+  ];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-      {trace.sensitivity_sweep.map((pt, i) => {
-        const isFlip = pt.decision !== originalDecision;
-        const cfg = DECISION_CONFIG[pt.decision as Decision];
-        return (
-          <div key={i} className={`sweep-row${isFlip ? " flip" : ""}`}>
-            <code style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.8rem", minWidth: 80, color: "var(--text-secondary)" }}>
-              τ = {String(pt.variable_value)}
-            </code>
-            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-              <div className="progress-bar" style={{ flex: 1, maxWidth: 160 }}>
-                <div className="progress-bar-fill" style={{ width: `${pt.final_score}%` }} />
+    <div style={{
+      background: "var(--surface)",
+      border: "1px solid var(--border)",
+      borderRadius: "var(--radius-lg)",
+      padding: "var(--space-6)",
+      display: "flex",
+      flexDirection: "column",
+      gap: "var(--space-4)",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-primary)" }}>
+            Live Market Intelligence
+          </h3>
+          <p style={{ margin: "2px 0 0", fontSize: "var(--text-sm)", color: "var(--text-muted)" }}>
+            Real-time signals fetched during evaluation
+          </p>
+        </div>
+        <span style={{
+          fontSize: "var(--text-xs)", fontWeight: 700, padding: "3px 10px",
+          borderRadius: "var(--radius-sm)", background: "rgba(99,102,241,0.15)",
+          color: "#818cf8", border: "1px solid rgba(99,102,241,0.3)",
+          textTransform: "uppercase", letterSpacing: "0.06em",
+        }}>
+          {intel.source === "serpapi" ? "SerpAPI" : "DuckDuckGo"}
+        </span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-4)" }}>
+        {sections.map(({ label, key, color }) => {
+          const items: string[] = intel[key] ?? [];
+          if (!items.length) return null;
+          return (
+            <div key={key} style={{
+              background: "rgba(15,21,35,0.5)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-4)",
+            }}>
+              <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color, marginBottom: "var(--space-3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                {label}
               </div>
-              <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}>
-                {pt.final_score.toFixed(1)}
-              </span>
+              <ul style={{ margin: 0, padding: "0 0 0 var(--space-4)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                {items.slice(0, 3).map((s, i) => (
+                  <li key={i} style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                    {s.length > 150 ? s.slice(0, 150) + "…" : s}
+                  </li>
+                ))}
+              </ul>
             </div>
-            <span className={`badge ${cfg?.class ?? "badge-neutral"}`}>
-              {pt.decision}
-            </span>
-            {isFlip && (
-              <span style={{
-                fontSize: "0.7rem", color: "var(--warning)", fontWeight: 700,
-                padding: "2px 8px", background: "rgba(245,158,11,0.12)",
-                borderRadius: "999px", border: "1px solid rgba(245,158,11,0.3)",
-                display: "flex", alignItems: "center", gap: 4,
-              }}>
-                <TrendingDown size={10} /> FLIP
-              </span>
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
+}
+
+// ── Extra Agents Badge (Scope B) ──────────────────────────────
+
+export function ExtraAgentsBadge({ trace }: { trace: DecisionTrace }) {
+  const extra = trace.extra_agents_triggered;
+  if (!extra || extra.length === 0) return null;
+
+  const SPEC_COLORS: Record<string, string> = {
+    "Regulatory (FDA)": "#f43f5e",
+    "ESG & Impact": "#22c55e",
+    "Blockchain & Web3": "#f59e0b",
+    "Hardware & Supply Chain": "#60a5fa",
+    "AI Ethics & Safety": "#a78bfa",
+  };
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: "var(--space-2)",
+      padding: "var(--space-3) var(--space-4)",
+      background: "rgba(168,85,247,0.08)",
+      border: "1px solid rgba(168,85,247,0.25)",
+      borderRadius: "var(--radius-md)",
+      flexWrap: "wrap",
+    }}>
+      <span style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: "var(--space-2)" }}>
+        ⚡ Dynamic Specialists
+      </span>
+      {extra.map(domain => (
+        <span key={domain} style={{
+          fontSize: "var(--text-xs)", fontWeight: 600, padding: "2px 10px",
+          borderRadius: "999px", border: `1px solid ${SPEC_COLORS[domain] ?? "#888"}40`,
+          background: `${SPEC_COLORS[domain] ?? "#888"}18`,
+          color: SPEC_COLORS[domain] ?? "var(--text-secondary)",
+        }}>
+          {domain}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── Sensitivity Sweep (delegates to SensitivityChart) ─────────
+
+export function SensitivitySweep({ trace }: { trace: DecisionTrace }) {
+  const sweep = trace.sensitivity_sweep as import("@/lib/api").SweepResult | undefined;
+  if (!sweep?.by_domain) return null;
+  const { SensitivityChart } = require("./SensitivityChart");
+  return <SensitivityChart sweep={sweep} />;
 }

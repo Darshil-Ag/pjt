@@ -1,178 +1,116 @@
 """
-HITL Checkpoint Store — Supabase persistence (SRS F-09).
-
-Why Supabase instead of local SQLite:
-  Render's free tier uses EPHEMERAL disk — local SQLite is wiped on every deploy/restart.
-  F-09's acceptance criterion explicitly requires graph state to survive a server restart
-  between the HITL pause and resume. Supabase free tier (Postgres) is the zero-cost,
-  restart-proof alternative named in the Architecture Doc §7.
-
-Table schema (run once in Supabase SQL editor):
-    CREATE TABLE IF NOT EXISTS hitl_checkpoints (
-        evaluation_id TEXT PRIMARY KEY,
-        state_json    JSONB NOT NULL,
-        created_at    TIMESTAMPTZ DEFAULT NOW()
-    );
-
-Usage:
-    await save_hitl_state(eval_id, state_dict)   # before suspending
-    await load_hitl_state(eval_id)               # on resume (may be after restart)
-    await delete_hitl_state(eval_id)             # after resume completes
+Local SQLite Store — Persists HITL state and completed evaluations (F-09, F-17).
+Replaces the Supabase dependency with a zero-config local database.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
+import sqlite3
+from pathlib import Path
 from typing import Optional
-
-from config import Config
 
 logger = logging.getLogger(__name__)
 
-# ── Lazy singleton client ─────────────────────────────────────────────────────
+DB_PATH = Path("data/store.sqlite")
 
-_supabase_client = None
+def _get_conn():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    with _get_conn() as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS hitl_checkpoints (
+                evaluation_id TEXT PRIMARY KEY,
+                state_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS evaluations (
+                evaluation_id TEXT PRIMARY KEY,
+                result_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+
+# Initialize tables on module import
+init_db()
 
 
-def _get_client():
-    """
-    Lazily initialize the Supabase client.
-    Returns None (with a logged error) if SUPABASE_URL / SUPABASE_KEY are not set.
-    This lets the app start locally without Supabase configured — the HITL path
-    will log a CRITICAL error if it is actually reached without credentials.
-    """
-    global _supabase_client
-    if _supabase_client is not None:
-        return _supabase_client
+# ── HITL Checkpoints (F-09) ───────────────────────────────────────────────────
 
-    url = Config.llm.supabase_url
-    key = Config.llm.supabase_key
-
-    if not url or not key or "your-project" in url or "your_supabase" in key:
-        logger.warning(
-            "SUPABASE_URL / SUPABASE_KEY not configured. "
-            "HITL persistence (F-09) will be unavailable. "
-            "Set these in .env or Render environment variables."
-        )
-        return None
-
+async def save_hitl_state(evaluation_id: str, state_dict: dict) -> None:
+    """Persist graph state to SQLite before pausing for human input."""
+    logger.info(f"[{evaluation_id}] Saving HITL state to SQLite...")
     try:
-        from supabase import create_client  # type: ignore[import]
-        _supabase_client = create_client(url, key)
-        logger.info("Supabase client initialized (HITL persistence active).")
+        state_json = json.dumps(state_dict)
+        with _get_conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO hitl_checkpoints (evaluation_id, state_json) VALUES (?, ?)",
+                (evaluation_id, state_json)
+            )
+            conn.commit()
     except Exception as exc:
-        logger.error(f"Failed to initialize Supabase client: {exc}")
-        return None
-
-    return _supabase_client
-
-
-# ── Public API ────────────────────────────────────────────────────────────────
-
-async def save_hitl_state(evaluation_id: str, state: dict) -> bool:
-    """
-    Persist the full evaluation state to Supabase before graph suspension.
-
-    This is the F-09 persistence guarantee: state is written to Postgres
-    before hitl_node returns, so a server restart does not lose the checkpoint.
-
-    Returns True on success, False on failure (caller should log and surface the error).
-    """
-    client = _get_client()
-    if client is None:
-        logger.critical(
-            f"[{evaluation_id}] HITL state NOT persisted: Supabase unconfigured. "
-            "F-09 acceptance criterion VIOLATED — evaluation cannot survive server restart."
-        )
-        return False
-
-    # Sanitize state: remove non-serializable objects, convert to JSON-safe dict
-    safe_state = _make_serializable(state)
-    payload = {
-        "evaluation_id": evaluation_id,
-        "state_json": safe_state,  # Supabase JSONB column accepts dict directly
-    }
-
-    def _upsert() -> None:
-        client.table("hitl_checkpoints").upsert(payload, on_conflict="evaluation_id").execute()
-
-    try:
-        await asyncio.to_thread(_upsert)
-        logger.info(f"[{evaluation_id}] HITL state persisted to Supabase. F-09 satisfied.")
-        return True
-    except Exception as exc:
-        logger.critical(f"[{evaluation_id}] Supabase upsert failed: {exc}. F-09 VIOLATED.")
-        return False
-
+        logger.error(f"[{evaluation_id}] Failed to save HITL state: {exc}")
+        raise
 
 async def load_hitl_state(evaluation_id: str) -> Optional[dict]:
-    """
-    Load the persisted evaluation state from Supabase on resume.
-    Returns the state dict, or None if not found or Supabase is unavailable.
-    """
-    client = _get_client()
-    if client is None:
-        return None
-
-    def _select():
-        return (
-            client.table("hitl_checkpoints")
-            .select("state_json")
-            .eq("evaluation_id", evaluation_id)
-            .maybe_single()
-            .execute()
-        )
-
+    """Load paused graph state from SQLite upon user response."""
     try:
-        result = await asyncio.to_thread(_select)
-        if result.data is None:
-            logger.warning(f"[{evaluation_id}] No HITL checkpoint found in Supabase.")
+        with _get_conn() as conn:
+            row = conn.execute(
+                "SELECT state_json FROM hitl_checkpoints WHERE evaluation_id = ?",
+                (evaluation_id,)
+            ).fetchone()
+            if row:
+                return json.loads(row["state_json"])
             return None
-        state_json = result.data.get("state_json")
-        if isinstance(state_json, str):
-            return json.loads(state_json)
-        return state_json  # Supabase JSONB returns dict directly
     except Exception as exc:
-        logger.error(f"[{evaluation_id}] Supabase load failed: {exc}")
+        logger.error(f"[{evaluation_id}] Failed to load HITL state: {exc}")
         return None
-
 
 async def delete_hitl_state(evaluation_id: str) -> None:
-    """
-    Remove the checkpoint after successful resume (clean up Supabase table).
-    Non-fatal if this fails — the checkpoint will just be orphaned.
-    """
-    client = _get_client()
-    if client is None:
-        return
-
-    def _delete() -> None:
-        client.table("hitl_checkpoints").delete().eq("evaluation_id", evaluation_id).execute()
-
+    """Delete the checkpoint once successfully resumed."""
     try:
-        await asyncio.to_thread(_delete)
-        logger.info(f"[{evaluation_id}] HITL checkpoint deleted from Supabase.")
+        with _get_conn() as conn:
+            conn.execute("DELETE FROM hitl_checkpoints WHERE evaluation_id = ?", (evaluation_id,))
+            conn.commit()
     except Exception as exc:
         logger.warning(f"[{evaluation_id}] Failed to delete HITL checkpoint: {exc}")
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+# ── Completed Evaluations (F-17) ───────────────────────────────────────────────
 
-def _make_serializable(obj):
-    """
-    Recursively convert a dict/list to a JSON-serializable form.
-    Handles sets, Pydantic models, and any object with __dict__.
-    """
-    if isinstance(obj, dict):
-        return {k: _make_serializable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_make_serializable(i) for i in obj]
-    if isinstance(obj, set):
-        return [_make_serializable(i) for i in sorted(obj)]
-    if hasattr(obj, "model_dump"):
-        return _make_serializable(obj.model_dump())
-    if hasattr(obj, "__dict__"):
-        return _make_serializable(obj.__dict__)
-    return obj
+def save_evaluation_result(evaluation_id: str, result_dict: dict) -> None:
+    """Persist a completed evaluation trace to SQLite."""
+    try:
+        result_json = json.dumps(result_dict)
+        with _get_conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO evaluations (evaluation_id, result_json) VALUES (?, ?)",
+                (evaluation_id, result_json)
+            )
+            conn.commit()
+    except Exception as exc:
+        logger.error(f"[{evaluation_id}] Failed to save evaluation result: {exc}")
+
+def load_evaluation_result(evaluation_id: str) -> Optional[dict]:
+    """Load a completed evaluation trace from SQLite."""
+    try:
+        with _get_conn() as conn:
+            row = conn.execute(
+                "SELECT result_json FROM evaluations WHERE evaluation_id = ?",
+                (evaluation_id,)
+            ).fetchone()
+            if row:
+                return json.loads(row["result_json"])
+            return None
+    except Exception as exc:
+        logger.error(f"[{evaluation_id}] Failed to load evaluation result: {exc}")
+        return None

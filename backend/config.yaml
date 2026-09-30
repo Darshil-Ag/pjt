@@ -64,7 +64,7 @@ versioning:
   prompt_template_version: "v1.0"
   dataset_version: "v1.0"
   rag_index_version: "v1.0"
-  weight_calibration_version: "uncalibrated"  # updated after Sprint 2 calibration run
+  weight_calibration_version: "v1.1-calibrated"  # updated after Sprint 2 calibration run
 
 # ── API ───────────────────────────────────────────────────────────────────────
 api:

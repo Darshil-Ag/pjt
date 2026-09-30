@@ -34,7 +34,8 @@ from schemas.state import ReviewBoardState
 
 logger = logging.getLogger(__name__)
 
-DOMAINS = ["Finance", "Legal", "Market", "Operations", "Technology"]
+BASE_DOMAINS = ["Finance", "Legal", "Market", "Operations", "Technology"]
+DOMAINS = BASE_DOMAINS  # may be extended per-run by dynamic agent detection
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,7 @@ Respond with ONLY valid JSON, no commentary, no markdown:
 _AGENT_PROMPT = """\
 You are the {domain} specialist on an AI investment review board evaluating a startup pitch.
 Assess ONLY from a {domain} perspective. Do not comment on other domains.
+{persona_override}
 
 STARTUP PITCH:
 {pitch}
@@ -62,6 +64,8 @@ STRUCTURED STARTUP PROFILE:
 
 SIMILAR HISTORICAL CASES FOR REFERENCE:
 {cases_json}
+
+{market_intel_block}
 
 Score this startup 0-100 on {domain} viability (0=fatal flaw, 50=neutral, 100=exceptional).
 Cite any historical case IDs above that most influenced your assessment.
@@ -121,6 +125,8 @@ async def _single_agent_call(
     digital_twin: dict,
     retrieved_cases: list[dict],
     eval_id: str,
+    persona_override: str = "",
+    market_intel_block: str = "",
 ) -> Optional[dict]:
     """
     Single domain agent coroutine.
@@ -143,9 +149,11 @@ async def _single_agent_call(
     client = AsyncGroq(api_key=Config.llm.groq_api_key)
     prompt = _AGENT_PROMPT.format(
         domain=domain,
+        persona_override=f"SPECIALIST CONTEXT:\n{persona_override}" if persona_override else "",
         pitch=startup_pitch,
         digital_twin_json=json.dumps(digital_twin, indent=2, default=str),
         cases_json=json.dumps(retrieved_cases, indent=2, default=str) if retrieved_cases else "[]",
+        market_intel_block=market_intel_block if market_intel_block else "",
     )
 
     last_exc: Optional[Exception] = None
@@ -274,17 +282,29 @@ def _compute_weights(
     Returns:
         {domain: Wi} summing to 1.0 (softmax output).
     """
-    # Sprint 2: bi=0, T=1 for all domains (uncalibrated — calibration is Sprint 3)
-    logger.info(
-        "[UNCALIBRATED] Sprint 2 weights use bi=0, T=1.0. "
-        "Calibration grid-search deferred to Sprint 3. "
-        "Weights reflect domain relevance Ri only."
-    )
+    import json
+    from pathlib import Path
+    
+    # Load calibrated parameters (F-07)
+    calib_path = Path(Config.calibration.output_path)
+    calib_data = {}
+    if calib_path.exists():
+        try:
+            with open(calib_path) as f:
+                calib_data = json.load(f)
+            temperature = calib_data.get("temperature", temperature)
+        except Exception as e:
+            logger.warning(f"Failed to load calibrated weights: {e}")
+            
     domains = list(domain_relevance.keys())
     ri_arr = np.array([domain_relevance[d] for d in domains], dtype=float)
     if ri_arr.max() > 1.0:
         ri_arr = ri_arr / 100.0
-    logits = (ri_arr + bias) / temperature
+        
+    biases = calib_data.get("biases", {})
+    bi_arr = np.array([biases.get(d, bias) for d in domains], dtype=float)
+    
+    logits = (ri_arr + bi_arr) / temperature
     # Numerically stable softmax: subtract max before exp
     logits -= logits.max()
     exp_logits = np.exp(logits)
@@ -320,16 +340,41 @@ async def parallel_dispatch_node(state: ReviewBoardState) -> dict:
     digital_twin = state.get("digital_twin", {})
     retrieved_cases = state.get("retrieved_cases", [])
 
-    # ── Step 1: Compute domain-relevance priors Ri (F-07) ────────────────────
-    # This MUST run before agent calls — Ri must be independent of Si.
-    domain_relevance = await _get_domain_relevance(startup_pitch, eval_id)
+    # ── Scope A: Real-Time Market Intelligence ────────────────────────────────
+    from market_intel import fetch_market_intel, format_market_intel_for_prompt, upsert_live_companies
+    industry = digital_twin.get("industry", "technology")
+    biz_model = digital_twin.get("business_model_summary", "")
+    target_mkt = digital_twin.get("target_market", "")
+    market_intel = await fetch_market_intel(industry, biz_model, target_mkt, eval_id)
+    market_intel_block = format_market_intel_for_prompt(market_intel)
 
-    # ── Step 2: Run all 5 agents concurrently (F-05) ────────────────────────────
-    # Each coroutine marks itself "running" independently at launch.
-    # One agent failure does NOT cancel or affect the other four.
+    # Fire-and-forget: upsert live signals into ChromaDB concurrently
+    # This runs in the background while agents execute — zero latency cost
+    asyncio.create_task(upsert_live_companies(market_intel, industry, eval_id))
+
+    # ── Scope B: Dynamic Agent Detection ─────────────────────────────────────
+    from dynamic_agents import detect_extra_agents, get_all_active_domains
+    extra_agents = detect_extra_agents(startup_pitch, digital_twin)
+    active_domains = get_all_active_domains(extra_agents)
+    extra_agent_map = {a["domain"]: a for a in extra_agents}
+    if extra_agents:
+        logger.info(f"[{eval_id}] Dynamic agents activated: {[a['domain'] for a in extra_agents]}")
+
+    # ── Step 1: Compute domain-relevance priors Ri (F-07) ────────────────────
+    domain_relevance = await _get_domain_relevance(startup_pitch, eval_id)
+    # Assign default Ri for extra agents (average of base domains)
+    default_ri = sum(domain_relevance.values()) / len(domain_relevance) if domain_relevance else 50.0
+    for a in extra_agents:
+        domain_relevance[a["domain"]] = default_ri
+
+    # ── Step 2: Run all active agents concurrently (F-05) ────────────────────
     agent_tasks = [
-        _single_agent_call(domain, startup_pitch, digital_twin, retrieved_cases, eval_id)
-        for domain in DOMAINS
+        _single_agent_call(
+            domain, startup_pitch, digital_twin, retrieved_cases, eval_id,
+            persona_override=extra_agent_map[domain]["prompt_persona"] if domain in extra_agent_map else "",
+            market_intel_block=market_intel_block,
+        )
+        for domain in active_domains
     ]
     raw_results: list[Optional[dict]] = await asyncio.gather(*agent_tasks)
 
@@ -340,7 +385,7 @@ async def parallel_dispatch_node(state: ReviewBoardState) -> dict:
     agent_confidences: dict[str, float] = {}
     active_relevance: dict[str, float] = {}
 
-    for domain, result in zip(DOMAINS, raw_results):
+    for domain, result in zip(active_domains, raw_results):
         if result is None:
             logger.warning(f"[{eval_id}] Agent '{domain}' excluded from fusion (failed after retry).")
             continue
@@ -352,7 +397,7 @@ async def parallel_dispatch_node(state: ReviewBoardState) -> dict:
 
     if not agent_scores:
         logger.error(
-            f"[{eval_id}] All 5 domain agents failed. "
+            f"[{eval_id}] All domain agents failed. "
             "Fusion will degrade to REVIEW (NF-05 graceful degradation)."
         )
 
@@ -362,7 +407,8 @@ async def parallel_dispatch_node(state: ReviewBoardState) -> dict:
 
     logger.info(
         f"[{eval_id}] Parallel dispatch complete. "
-        f"Scores={agent_scores}, Weights={agent_weights}, Confidences={agent_confidences}"
+        f"Scores={agent_scores}, Weights={agent_weights}, Confidences={agent_confidences}, "
+        f"Extra agents={[a['domain'] for a in extra_agents]}, Market intel={market_intel.get('source','none')}"
     )
 
     return {
@@ -371,4 +417,6 @@ async def parallel_dispatch_node(state: ReviewBoardState) -> dict:
         "agent_weights": agent_weights,
         "agent_claims": agent_claims,
         "agent_citations": agent_citations,
+        "market_intel": market_intel,
+        "extra_agents_triggered": [a["domain"] for a in extra_agents],
     }

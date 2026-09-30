@@ -12,6 +12,8 @@ import {
   BoardTranscript,
   VersionInfo,
   SensitivitySweep,
+  MarketIntelCard,
+  ExtraAgentsBadge,
 } from "@/components/Dashboard";
 import { getDecision, getEvaluationStatus } from "@/lib/api";
 import type { DecisionTrace, ProgressResponse } from "@/lib/api";
@@ -298,15 +300,17 @@ export default function DecisionPage() {
                 {/* ── Agents ── */}
                 {activeTab === "Agents" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
+                    <ExtraAgentsBadge trace={trace} />
                     <div className="card">
                       <h3 style={{ marginBottom: "var(--space-5)" }}>Agent Score Breakdown</h3>
                       <AgentBreakdownTable trace={trace} />
                     </div>
-                    {trace.sensitivity_sweep && trace.sensitivity_sweep.length > 0 && (
+                    <MarketIntelCard trace={trace} />
+                    {trace.sensitivity_sweep && trace.sensitivity_sweep.by_domain && Object.keys(trace.sensitivity_sweep.by_domain).length > 0 && (
                       <div className="card">
                         <h3 style={{ marginBottom: "var(--space-2)" }}>Assumption Sensitivity Sweep</h3>
                         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "var(--space-5)" }}>
-                          Re-ran fusion across a range of values for the HITL-triggering variable. Decision flips are highlighted.
+                          Re-ran fusion across ±20% / ±10% weight perturbations per domain. Decision flips are highlighted.
                         </p>
                         <SensitivitySweep trace={trace} />
                       </div>

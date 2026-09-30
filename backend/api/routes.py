@@ -100,6 +100,9 @@ class DecisionResponse(BaseModel):
     hitl_triggered: bool
     hitl_question: Optional[str]
     hitl_answer: Optional[str]
+    sensitivity_sweep: Optional[dict] = None
+    market_intel: Optional[dict] = None
+    extra_agents_triggered: list[str] = []
     version_info: dict
 
 
@@ -165,11 +168,11 @@ async def _run_evaluation(evaluation_id: str, startup_pitch: str) -> None:
         state.update(await parallel_dispatch_node(state))
         state.update(conflict_index_node(state))
 
-        # if route_after_conflict(state) == "hitl":
-        #     # HITL path: hitl_node persists state to Supabase before returning
-        #     state.update(await hitl_node(state))
-        #     # Progress store already updated to hitl_pending inside hitl_node
-        #     return  # Suspended — resumed via POST /hitl-respond
+        if route_after_conflict(state) == "hitl":
+            # HITL path: hitl_node persists state to SQLite before returning
+            state.update(await hitl_node(state))
+            # Progress store already updated to hitl_pending inside hitl_node
+            return  # Suspended — resumed via POST /hitl-respond
 
         await _run_post_fusion(evaluation_id, state, fusion_node, sensitivity_sweep_node,
                                red_team_node, evaluation_logger_node)
@@ -263,9 +266,15 @@ async def _run_post_fusion(
         "hitl_ci_after": state.get("hitl_ci_after"),
         "hitl_effectiveness": state.get("hitl_effectiveness"),
         "sensitivity_sweep": state.get("sensitivity_sweep"),
+        "market_intel": state.get("market_intel"),
+        "extra_agents_triggered": state.get("extra_agents_triggered", []),
         "version_info": state.get("version_info", {}),
     }
     prog.store_result(evaluation_id, result)
+    
+    from hitl_store import save_evaluation_result
+    save_evaluation_result(evaluation_id, result)
+    
     prog.mark_complete(evaluation_id)
     logger.info(
         f"[{evaluation_id}] Evaluation complete. "
@@ -425,6 +434,14 @@ async def get_decision(evaluation_id: str) -> DecisionResponse:
     to a value in this response — no UI-invented numbers.
     """
     row = prog.get_progress(evaluation_id)
+    
+    # Try fetching from SQLite if memory cache doesn't have it (server restarted)
+    if row is None or row.get("status") != "complete":
+        from hitl_store import load_evaluation_result
+        persisted_result = load_evaluation_result(evaluation_id)
+        if persisted_result:
+            return DecisionResponse(**persisted_result)
+
     if row is None:
         raise HTTPException(status_code=404, detail=f"Evaluation {evaluation_id!r} not found.")
 

@@ -352,7 +352,7 @@ code{font-family:"Courier New",monospace;font-size:8.5pt}
       <span style="display:inline-block;width:18pt;height:18pt;background:#1e1b4b;color:white;border-radius:2pt;font-size:8pt;font-weight:700;text-align:center;line-height:18pt;margin-right:6pt;vertical-align:middle">${6 + sectionBase}</span>
       Historical Evidence Base
     </div>
-    <p style="font-size:8.5pt;color:#6b7280;margin-bottom:10pt">Top-${trace.retrieved_cases!.length} cases retrieved from ChromaDB via Gemini text-embedding-004 cosine similarity. Test-set cases are hard-excluded (SRS F-03).</p>
+    <p style="font-size:8.5pt;color:#6b7280;margin-bottom:10pt">Top-${trace.retrieved_cases!.length} cases retrieved from ChromaDB via local semantic embedding (all-MiniLM-L6-v2) cosine similarity. Test-set cases are hard-excluded (SRS F-03).</p>
     <table>
       <thead>
         <tr><th>Case ID</th><th>Industry</th><th>Outcome</th><th>Primary Risk</th><th>Similarity</th><th>Root Cause Summary</th></tr>
@@ -370,6 +370,72 @@ code{font-family:"Courier New",monospace;font-size:8.5pt}
     <p style="font-size:8.5pt;color:#6b7280;margin-bottom:14pt">Verbatim claims from each domain-specialist agent. Claims are LLM-generated and do not affect fusion math.</p>
     ${transcriptRows}
   </div>
+
+  <!-- S Sensitivity Sweep -->
+  ${(() => {
+    const sweep = trace.sensitivity_sweep as import("@/lib/api").SweepResult | undefined;
+    if (!sweep?.by_domain) return "";
+    const domainList = Object.keys(sweep.by_domain);
+    const COLORS: Record<string, string> = {
+      Finance:"#16a34a", Legal:"#d97706", Market:"#2563eb", Operations:"#ea580c", Technology:"#7c3aed"
+    };
+    const flipSet = new Set(sweep.decision_flips ?? []);
+
+    const sweepRows = domainList.map(domain => {
+      const pts = sweep.by_domain[domain];
+      const color = COLORS[domain] ?? "#374151";
+      const isFlip = flipSet.has(domain);
+
+      const cells = pts.map(p => {
+        const isBase = p.delta_pct === 0;
+        const decColor = p.decision === "PROCEED" ? "#16a34a" : p.decision === "HIGH-RISK" ? "#dc2626" : "#d97706";
+        return `<td style="text-align:center;padding:4pt 6pt;background:${isBase ? "#e0e7ff" : "inherit"}">
+          <div style="font-family:'Courier New',monospace;font-size:8pt;font-weight:${isBase ? 700 : 400};color:#111827">${p.final_score?.toFixed(1) ?? "—"}</div>
+          <div style="font-size:7pt;color:${decColor};font-weight:600">${p.decision}</div>
+        </td>`;
+      }).join("");
+
+      return `<tr>
+        <td style="padding:4pt 8pt;font-family:Arial,sans-serif;font-size:8.5pt;font-weight:700;color:${color}">
+          ${domain}${isFlip ? ' <span style="color:#dc2626;font-size:7pt">⚠ FLIP</span>' : ""}
+        </td>
+        ${cells}
+      </tr>`;
+    }).join("");
+
+    const baseScore = sweep.baseline?.final_score;
+    const baseDec = sweep.baseline?.decision;
+
+    return `
+    <div style="margin-bottom:28pt" class="page-break">
+      <div style="font-family:Arial,sans-serif;font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#6d28d9;border-bottom:1.5pt solid #6d28d9;padding-bottom:4pt;margin-bottom:14pt">
+        <span style="display:inline-block;width:18pt;height:18pt;background:#1e1b4b;color:white;border-radius:2pt;font-size:8pt;font-weight:700;text-align:center;line-height:18pt;margin-right:6pt;vertical-align:middle">${(trace.retrieved_cases ?? []).length > 0 ? 8 + sectionBase : 7 + sectionBase}</span>
+        Sensitivity Analysis (SRS F-14)
+      </div>
+      <p style="font-size:8.5pt;color:#6b7280;margin-bottom:10pt">
+        Each domain's weight is perturbed by ±10% and ±20% (renormalized) while all other weights adjust proportionally. 
+        Fusion math is re-run deterministically for each perturbation — zero LLM calls.
+        Baseline: <strong>${baseScore?.toFixed(1) ?? "—"}</strong> (${baseDec ?? "—"}).
+        ${flipSet.size > 0 ? `<span style="color:#dc2626;font-weight:600"> ⚠ Decision flip(s) detected for: ${[...flipSet].join(", ")}.</span>` : "<span style='color:#16a34a'>✓ Decision is stable across all perturbations.</span>"}
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:100pt">Domain</th>
+            <th style="text-align:center">−20%</th>
+            <th style="text-align:center">−10%</th>
+            <th style="text-align:center;background:#3730a3">Baseline</th>
+            <th style="text-align:center">+10%</th>
+            <th style="text-align:center">+20%</th>
+          </tr>
+        </thead>
+        <tbody>${sweepRows}</tbody>
+      </table>
+      <p style="font-size:7.5pt;color:#9ca3af;margin-top:8pt">
+        Highlighted cells = baseline (0% perturbation). ⚠ FLIP = decision class changes from baseline at that perturbation level.
+      </p>
+    </div>`;
+  })()}
 
   <!-- S Methodology -->
   <div style="margin-bottom:28pt" class="page-break">

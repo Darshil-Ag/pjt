@@ -60,7 +60,13 @@ class ReviewBoardState(TypedDict):
     red_team_reasoning: Optional[str]          # Red Team's explanation
 
     # ── Sensitivity Sweep (F-14) ──────────────────────────────────────────────
-    sensitivity_sweep: Optional[list[dict]]    # [{variable_value, final_score, decision}]
+    sensitivity_sweep: Optional[dict]           # {baseline, by_domain, decision_flips}
+
+    # ── Real-Time Market Intelligence (Scope A) ───────────────────────────────
+    market_intel: Optional[dict]               # {funding_signals, competitor_signals, market_signals, source}
+
+    # ── Dynamic Agents (Scope B) ──────────────────────────────────────────────
+    extra_agents_triggered: list[str]          # domain names of extra specialists spawned
 
     # ── Uncertainty Band (F-15) ───────────────────────────────────────────────
     final_score_uncertainty: Optional[float]   # Confidence-weighted spread
@@ -104,6 +110,8 @@ def initial_state(startup_pitch: str, evaluation_id: str, version_info: dict) ->
         red_team_severity=None,
         red_team_reasoning=None,
         sensitivity_sweep=None,
+        market_intel=None,
+        extra_agents_triggered=[],
         final_score_uncertainty=None,
         hitl_ci_before=None,
         hitl_ci_after=None,

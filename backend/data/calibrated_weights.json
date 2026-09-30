@@ -1,0 +1,11 @@
+{
+  "temperature": 1.5,
+  "biases": {
+    "Finance": 0.1,
+    "Legal": 0.0,
+    "Market": 0.2,
+    "Operations": -0.1,
+    "Technology": 0.0
+  },
+  "version": "v1.1-calibrated"
+}
